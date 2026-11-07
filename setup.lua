@@ -1,8 +1,8 @@
--- ccOS 2.0 setup. Drop onto an advanced CC: Tweaked computer, run setup.
--- Self-contained: installs all Lua modules and dependencies, then opens setup.
-local VERSION = "2.0"
+-- ccOS 2.1 setup. Run setup, or use --update to preserve setup preferences.
+local VERSION = "2.1"
+local updateMode = ... == "--update"
 local FILES = {
-  { "ccos/apps/about.lua", [=[
+  {"ccos/apps/about.lua",[=[
 -- About: the logo, what this computer is, and the shortcuts.
 local ui = ccos.ui
 local T = ui.T
@@ -44,8 +44,8 @@ function app:draw(g)
 end
 
 ui.run(app)
-]=] },
-  { "ccos/apps/agent.lua", [=[
+]=]},
+  {"ccos/apps/agent.lua",[=[
 local ui,T,A=ccos.ui,ccos.ui.T,ccos.agent
 local floor,max,min=math.floor,math.max,math.min
 local initial=...
@@ -64,7 +64,7 @@ function app:send(text)
 end
 function app:draw(g)
   local touch=ui.touch()
-  local y=act(g,1,{{"Chat",function()self.tab=1 end,self.tab==1},{"Activity",function()self.tab=2 end,self.tab==2},{"Settings",function()self.tab=3 end,self.tab==3},{A.busy and "Stop task"or "New chat",function()if A.busy then A.cancel()else A.clear()end end}})
+  local y=act(g,1,{{"Chat",function()self.tab=1 end,self.tab==1},{g.h<12 and "Log"or "Activity",function()self.tab=2 end,self.tab==2},{g.h<12 and "Setup"or "Settings",function()self.tab=3 end,self.tab==3},{A.busy and "Stop"or "New chat",function()if A.busy then A.cancel()else A.clear()end end}})
   g:text(2,y,ui.trunc(A.status.."  |  "..ccos.config("agentModel"),g.w-2),A.busy and T.accent or T.muted);y=y+2
   if A.pending then
     g:fill(2,y,g.w-2,1,T.raised);g:text(3,y,"Review: "..ui.trunc(A.pending.name,g.w-12),T.warn,T.raised)
@@ -77,16 +77,20 @@ function app:draw(g)
   if self.tab==3 then
     local lines={"OpenRouter: "..(A.configured()and "key saved"or "not configured"),"Review changes: "..(ccos.config("agentConfirm")and "On"or "Off (autonomous)"),"Step limit: "..ccos.config("agentMaxSteps"),"Output tokens / request: "..ccos.config("agentMaxTokens")}
     for _,line in ipairs(lines)do if y<g.h-2 then g:text(2,y,ui.trunc(line,g.w-2),T.text);y=y+1 end end
-    if not touch then
-      y=act(g,y+1,{{"API key",A.configure},{"Model",function()
+    do
+      y=act(g,y+1,{{"API key",A.configure},{"Models",function()self.tab=4;A.refreshModels()end},{"Model ID",function()
         local model=ccos.prompt("OpenRouter model","A model id with tool calling",ccos.config("agentModel"))
-        if model and model:match("^[%w%._:/%-]+$")and #model<=160 then ccos.config("agentModel",model)end
+        if model then local ok,why=A.selectModel(model);if not ok then self.error=why end end
       end},{"Review "..(ccos.config("agentConfirm")and "On"or "Off"),function()ccos.config("agentConfirm",not ccos.config("agentConfirm"))end}})
       y=act(g,y,{{"Steps -",function()ccos.config("agentMaxSteps",max(1,ccos.config("agentMaxSteps")-1))end},{"Steps +",function()ccos.config("agentMaxSteps",min(40,ccos.config("agentMaxSteps")+1))end},{"Remove key",function()if ccos.confirm("Remove API key?","The AI agent will be disconnected.","Remove")then A.setKey("")end end}})
       y=act(g,y,{{"Tokens -",function()ccos.config("agentMaxTokens",max(256,ccos.config("agentMaxTokens")-256))end},{"Tokens +",function()ccos.config("agentMaxTokens",min(8192,ccos.config("agentMaxTokens")+256))end}})
-    else
-      for _,line in ipairs(ui.wrap("Configure your API key and model on the computer. Pending actions can be reviewed on either screen.",g.w-4))do if y<g.h then g:text(2,y,line,T.muted);y=y+1 end end
+
     end
+  elseif self.tab==4 then
+    y=act(g,y,{{"Refresh",A.refreshModels},{self.showPaid and "Show free only"or "Include paid",function()self.showPaid=not self.showPaid end}})
+    g:text(2,y,ui.trunc(A.modelStatus or "Refresh to load models",g.w-2),T.muted);y=y+2
+    local models={};for _,m in ipairs(A.models or {})do if self.showPaid or m.free then models[#models+1]=m end end
+    g:list(self.scroll,2,y,g.w-2,max(1,g.h-y),models,function(m,_,x,yy,w)g:text(x,yy,ui.trunc((m.free and "Free: "or "Paid: ")..m.id,w),T.text)end,function(m)local ok,why=A.selectModel(m.id);if ok then self.tab=3 else self.error=why end end)
   elseif self.tab==2 then
     local lines={}
     for _,e in ipairs(A.activity)do
@@ -97,8 +101,8 @@ function app:draw(g)
     g:list(self.scroll,2,y,g.w-2,max(1,g.h-y),lines,function(line,_,x,yy,w)g:text(x,yy,ui.trunc(line,w),T.text)end)
   else
     local composerRows=touch and 0 or 3
-    if touch and not A.busy then
-      y=act(g,y,{{"Inspect system",function()self:send("Inspect ccOS, attached devices, screens and current settings. Summarize what is available. Do not change anything.")end},{"Find errors",function()self:send("Inspect the OS and agent logs for errors, then explain likely fixes. Do not change files yet.")end},{"Summarize files",function()self:send("List the root folders and notes. Summarize the files available without reading private credentials.")end}})
+    if touch and not A.busy and g.h>=12 then
+      y=act(g,y,{{"Write task",function()local text=ccos.prompt("Message AI Agent","Type on the computer","");if text and text~=""then self:send(text)end end},{"Inspect system",function()self:send("Inspect ccOS, attached devices, screens and current settings. Summarize what is available. Do not change anything.")end},{"Find errors",function()self:send("Inspect the OS and agent logs for errors, then explain likely fixes. Do not change files yet.")end},{"Summarize files",function()self:send("List the root folders and notes. Summarize the files available without reading private credentials.")end}})
     end
     local lines={}
     for _,m in ipairs(A.messages)do
@@ -106,7 +110,7 @@ function app:draw(g)
       for _,line in ipairs(ui.wrap(m.text,g.w-5))do lines[#lines+1]=" "..line end
       lines[#lines+1]=""
     end
-    if #lines==0 then lines={"ccOS Agent", "", "Read, edit and create files; run programs;", "inspect output; control settings, screens,", "audio, printers and attached peripherals.", "", A.configured()and(touch and "Choose a task above. Review actions here."or "Type a task below and press Enter.")or "Add your OpenRouter key in Settings."}end
+    if #lines==0 then lines={"ccOS Agent", "", "Read, edit and create files; run programs;", "inspect output; control settings, screens,", "audio, printers and attached peripherals.", "", A.configured()and(touch and "Type a message on the computer, or choose a task."or "Type a task below and press Enter.")or "Add your OpenRouter key in Settings."}end
     local available=max(1,g.h-y-composerRows)
     if self.seen~=#A.messages then self.scroll.scroll=max(0,#lines-available);self.seen=#A.messages end
     g:list(self.scroll,2,y,g.w-2,available,lines,function(line,_,x,yy,w)g:text(x,yy,ui.trunc(line,w),T.text)end)
@@ -130,8 +134,8 @@ function app:onKey(k)
 end
 function app:onEvent(ev)return ev[1]=="ccos_agent"end
 ui.run(app)
-]=] },
-  { "ccos/apps/calc.lua", [=[
+]=]},
+  {"ccos/apps/calc.lua",[=[
 -- Calculator: tap or type a sum; ans holds the last answer.
 local ui = ccos.ui
 local T = ui.T
@@ -235,8 +239,8 @@ function app:onKey(k)
 end
 
 ui.run(app)
-]=] },
-  { "ccos/apps/clock.lua", [=[
+]=]},
+  {"ccos/apps/clock.lua",[=[
 -- Clock: the time large, a stopwatch and a countdown timer.
 local ui = ccos.ui
 local T = ui.T
@@ -340,8 +344,8 @@ function app:onKey(k)
 end
 
 ui.run(app)
-]=] },
-  { "ccos/apps/files.lua", [=[
+]=]},
+  {"ccos/apps/files.lua",[=[
 -- Files: a folder tree, the folder's contents and what you can do with them.
 local ui = ccos.ui
 local T = ui.T
@@ -696,8 +700,8 @@ function app:onEvent(ev)
 end
 
 ui.run(app)
-]=] },
-  { "ccos/apps/music.lua", [=[
+]=]},
+  {"ccos/apps/music.lua",[=[
 -- Music: a stereo player with a library, a visualiser and the drive's
 -- music discs.
 local ui = ccos.ui
@@ -912,8 +916,8 @@ function app:onEvent(ev)
 end
 
 ui.run(app)
-]=] },
-  { "ccos/apps/notifications.lua", [=[
+]=]},
+  {"ccos/apps/notifications.lua",[=[
 local ui,T=ccos.ui,ccos.ui.T
 local app={title="Notifications",scroll={scroll=0}}
 function app:draw(g)
@@ -928,8 +932,8 @@ function app:draw(g)
 end
 function app:onEvent(ev)return ev[1]=="ccos_agent"end
 ui.run(app)
-]=] },
-  { "ccos/apps/piano.lua", [=[
+]=]},
+  {"ccos/apps/piano.lua",[=[
 -- Piano: two octaves of note-block pitches spread across the two
 -- speakers, low notes on the left and high on the right.
 local ui = ccos.ui
@@ -1066,8 +1070,8 @@ function app:onChar(ch)
 end
 
 ui.run(app)
-]=] },
-  { "ccos/apps/print.lua", [=[
+]=]},
+  {"ccos/apps/print.lua",[=[
 -- Print Center: the printer's paper and ink, and things to print.
 local ui = ccos.ui
 local T = ui.T
@@ -1175,8 +1179,8 @@ function app:draw(g)
 end
 
 ui.run(app)
-]=] },
-  { "ccos/apps/settings.lua", [=[
+]=]},
+  {"ccos/apps/settings.lua",[=[
 -- Settings: look, sound, screens, clock and desktop.
 local ui = ccos.ui
 local T = ui.T
@@ -1239,6 +1243,8 @@ function app:rows()
     toggle("Play system sounds", "sounds")
     toggle("Click on touch", "touchSounds")
   elseif s == "Screens" then
+    head("Monitor mode")
+    row("Top monitor", cfg("fullSync")and "Full Sync"or "Big Picture",{{"Full Sync",function()ccos.setFullSync(true)end},{"Big Picture",function()ccos.setFullSync(false)end}})
     head("Displays")
     for _, sc in ipairs(ccos.screens()) do
       if sc.kind == "term" then
@@ -1259,7 +1265,7 @@ function app:rows()
         })
       end
     end
-    rows[#rows + 1] = { note = "Picture is the compact touch tools interface. No keyboard needed." }
+    rows[#rows + 1] = { note = "Big Picture uses the computer for prompt input." }
     rows[#rows + 1] = { note = "Mirror shows the computer's screen, and taps on it act there." }
     rows[#rows + 1] = { note = "Desktop is a widescreen desktop of its own. Panel shows the time, music and devices." }
   elseif s == "Clock & panel" then
@@ -1302,12 +1308,16 @@ function app:rows()
     row("API key", ccos.agent.configured() and "Saved" or "Not configured", {{"Configure", ccos.agent.configure}})
     row("Model",cfg("agentModel"),{{"Change",function()
       local model=ccos.prompt("OpenRouter model","Model id with tool support",cfg("agentModel"))
-      if model and model:match("^[%w%._:/%-]+$")and #model<=160 then set("agentModel",model)end
+      if model then local ok,why=ccos.agent.selectModel(model);if not ok then ccos.alert("Model unavailable",why)end end
     end}})
     toggle("Review agent changes","agentConfirm")
     row("Step limit",tostring(cfg("agentMaxSteps")),{{"-",function()set("agentMaxSteps",math.max(1,cfg("agentMaxSteps")-1))end},{"+",function()set("agentMaxSteps",math.min(40,cfg("agentMaxSteps")+1))end}})
     row("Agent", "", {{"Open",function()ccos.open("agent")end}})
   else
+    head("Updates")
+    toggle("Automatic update checks","autoUpdates")
+    row("ccOS "..ccos.version,ccos.updates.status,{{"Check now",function()ccos.updates.check(true)end}})
+    if ccos.updates.available then row("New version",ccos.updates.available.version,{{"Update",ccos.updates.prompt}})end
     head("You")
     row("Name", cfg("user"), { { "Change", function()
       local name = ccos.prompt("Your name", "What should ccOS call you?", cfg("user"))
@@ -1410,9 +1420,11 @@ function app:onKey(k)
   self.scroll.scroll = 0
 end
 
+function app:onEvent(ev)return ev[1]=="ccos_updates"end
 ui.run(app)
-]=] },
-  { "ccos/apps/tasks.lua", [=[
+
+]=]},
+  {"ccos/apps/tasks.lua",[=[
 -- Tasks: windows and background tasks with their CPU use, and devices.
 local ui = ccos.ui
 local T = ui.T
@@ -1518,12 +1530,12 @@ function app:draw(g)
 end
 
 ui.run(app)
-]=] },
-  { "ccos/apps/tools.lua", [=[
+]=]},
+  {"ccos/apps/tools.lua",[=[
 local id, initial = ...
 ccos.ui.run(ccos.suite(id, initial))
-]=] },
-  { "ccos/apps/viewer.lua", [=[
+]=]},
+  {"ccos/apps/viewer.lua",[=[
 -- Viewer: read a text file, with Lua highlighting, line numbers and
 -- buttons to edit, run or print it.
 local ui = ccos.ui
@@ -1718,10 +1730,10 @@ function app:onKey(k)
 end
 
 ui.run(app)
-]=] },
-  { "ccos/kernel.lua", [=[
+]=]},
+  {"ccos/kernel.lua",[=[
 --[[
-  ccOS                                                        v2.0
+  ccOS                                                        v2.1
 
   A windowed desktop for CC: Tweaked across every screen it can find:
   the computer's desktop and advanced monitors as touch-only media hubs,
@@ -1733,7 +1745,7 @@ ui.run(app)
   apps add the `ccos` API on top.
 ]]
 
-local VERSION = "2.0"
+local VERSION = "2.1"
 local ROOT = "/ccos"
 local CONFIG_PATH = ROOT .. "/config.cfg"
 local nativeTerm = term.current()
@@ -1805,6 +1817,8 @@ local HEX = gfx.HEX
 local clock = loadModule(ROOT .. "/lib/time.lua")
 local catalog = loadModule(ROOT .. "/lib/catalog.lua")
 local json = loadModule(ROOT .. "/lib/json.lua")
+local sha256=loadModule(ROOT.."/lib/sha256.lua")
+local installer=loadModule(ROOT.."/lib/install.lua")
 K.clock, K.catalog, K.json = clock, catalog, json
 
 ------------------------------------------------------------------------
@@ -1817,6 +1831,7 @@ local DEFAULTS = {
   sounds = true, touchSounds = true, uiVolume = 0.6, musicVolume = 0.8, balance = 0, swapSpeakers = false,
   screens = {}, panelRotate = 12, idle = 300, shadows = true,
   desktop = { "files", "terminal", "music", "piano", "clock", "calc", "print", "tasks", "settings", "agent", "notes", "checklist" },
+  fullSync=false, autoUpdates=true,
   monitorFavorites={"files","music","clock","calc","settings","agent","notes","checklist","worldclock","units","redstone","peripherals"},
   recent = {}, screenLayout = 0, setupComplete = false, agentModel = "openrouter/auto", agentConfirm = true, agentMaxSteps = 16, agentMaxTokens = 2048,
 }
@@ -1950,7 +1965,7 @@ for _,a in ipairs(APPS)do
 end
 K.APPS = APPS
 function K.canTouchApp(app, screen)
-  local minimum={agent=12,clock=12,calc=12,calendar=12,lights=12,memory=12,tictactoe=12}
+  local minimum={agent=8,clock=12,calc=12,calendar=12,lights=12,memory=12,tictactoe=12}
   return app and app.touch and screen.w>=32 and screen.h-2>=(minimum[app.id]or 8)
 end
 local function appById(id)
@@ -2050,6 +2065,7 @@ function K.spawn(fn, opts)
     p.term = p.win.buf
   end
   procs[#procs + 1] = p
+  os.queueEvent("ccos_wake")
   return p
 end
 
@@ -2159,6 +2175,11 @@ function K.buildScreens()
     s.target, s.kind = target, kind
     local was = s.role
     s.role = conf.role or defaultRole
+    if was=="picture"and s.role~="picture"and byName.term then
+      local dest=byName.term;dest.dialogs=dest.dialogs or {}
+      for _,d in ipairs(s.dialogs or {})do d.screen=dest;dest.dialogs[#dest.dialogs+1]=d end
+      s.dialogs={}
+    end
     s.scaleCfg = conf.scale or "auto"
     if was and was ~= "off" and s.role == "off" then
       pcall(function()
@@ -2192,9 +2213,14 @@ function K.buildScreens()
     K.cfg.screenLayout = 2
     K.saveConfig()
   end
+  K.primaryMonitorName=mons[1]and mons[1].color and mons[1].name or nil
+  for _,m in ipairs(mons)do if m.color and m.name==K.cfg.mainMonitor then K.primaryMonitorName=m.name;break end end
   -- The biggest advanced monitor is a touch-only hub; the rest are panels.
   local first = true
   for _, x in ipairs(mons) do
+    if x.name==K.primaryMonitorName and K.cfg.fullSync then
+      K.cfg.screens[x.name]=K.cfg.screens[x.name]or {};K.cfg.screens[x.name].role="mirror";K.cfg.screens[x.name].scale="auto"
+    end
     make(x.name, x.m, "monitor", (x.color and first) and "picture" or "panel")
     if x.color then first = false end
   end
@@ -2209,6 +2235,20 @@ function K.buildScreens()
     layout(w)
   end
   if markAll then markAll() end
+end
+
+function K.pictureScreen()
+  local s=K.primaryMonitorName and screenByName[K.primaryMonitorName]
+  if s and s.role=="picture"then return s end
+  for _,candidate in ipairs(screens)do if candidate.kind=="monitor"and candidate.role=="picture"then return candidate end end
+end
+function K.setFullSync(enabled)
+  local current=K.pictureScreen()
+  local name=current and current.name or K.primaryMonitorName
+  if not name then return false,"No advanced monitor is connected"end
+  K.cfg.fullSync=enabled==true;K.cfg.mainMonitor=name
+  local conf=K.cfg.screens[name]or {};conf.role=enabled and "mirror"or "picture";conf.scale="auto";K.cfg.screens[name]=conf
+  K.saveConfig();K.buildScreens();return true
 end
 
 ------------------------------------------------------------------------
@@ -2399,20 +2439,20 @@ local nextDialog = 1
 -- cb(index, text). Also queues ccos_dialog id index text.
 function K.dialog(o)
   local s = o.screen or K.activeScreen()
-  -- Typing only happens with the computer's own screen open, which hides
-  -- the monitors, so anything that needs the keyboard goes there.
-  if o.input and s.kind ~= "term" then
+  -- Big Picture keeps the prompt on the monitor and bridges its field to
+  -- the computer input console. Other monitor roles use a desktop prompt.
+  if o.input and s.kind ~= "term" and s.role~="picture" then
     K.notify("Type on the computer", o.title or "", { icon = "terminal", quiet = true, time = 6000 })
     s = screenByName.term
   end
   local d = { id = nextDialog, title = o.title or "ccOS", text = o.text or "", buttons = o.buttons or { "OK" },
-    cb = o.cb, screen = s, owner = running }
+    cb = o.cb, screen = s, owner = not o.detached and running or nil, enterChoice=o.enterChoice }
   nextDialog = nextDialog + 1
   if o.input then d.field = { text = tostring(o.input == true and "" or o.input), secret = o.secret } end
   s.dialogs = s.dialogs or {}
   s.dialogs[#s.dialogs + 1] = d
   K.sfx("open")
-  markDirty(s)
+  markAll()
   return d.id
 end
 
@@ -2423,8 +2463,9 @@ local function answer(s, d, index)
   local text = d.field and d.field.text
   if d.cb then pcall(d.cb, index, text) end
   os.queueEvent("ccos_dialog", d.id, index, text)
-  markDirty(s)
+  markAll()
 end
+K.answerDialog=answer
 
 local function topDialog(s) return s.dialogs and s.dialogs[1] end
 
@@ -2434,6 +2475,7 @@ local function topDialog(s) return s.dialogs and s.dialogs[1] end
 
 local B, CS   -- buffer and screen being drawn
 local picture = loadModule(ROOT .. "/lib/picture.lua")(K, gfx, T)
+local inputConsole=loadModule(ROOT.."/lib/input.lua")(K,T)
 K.panelPage, K.panelPinned, K.panelAt = 1, false, now()
 local PANEL_PAGES = { "clock", "music", "notes", "system" }
 
@@ -3028,7 +3070,7 @@ local function drawDialog(s, d)
     local room = w - 6
     if #shown > room then shown = shown:sub(-room) end
     put(x + 3, yy, shown, T.text, T.bg)
-    s.cursor = { x = x + 3 + #shown, y = yy, color = T.accent }
+    if s.kind=="term"then s.cursor = { x = x + 3 + #shown, y = yy, color = T.accent }end
     yy = yy + 2
   end
   local bx = x + w - 1
@@ -3355,6 +3397,9 @@ local function compose(s)
     drawPanel(s)
   elseif K.saver then
     drawSaver(s)
+  elseif s.kind=="term" and K.pictureScreen()then
+    inputConsole.draw(s,K.pictureScreen())
+    local d=topDialog(s);if d and not d.field then drawDialog(s,d)end
   elseif s.role == "picture" then
     picture.draw(s)
     local d = topDialog(s); if d then drawDialog(s,d) end
@@ -3389,7 +3434,7 @@ local function compose(s)
     end
   end
   local cur = s.cursor
-  if not cur and not K.booting and not K.saver and s.role == "desktop" and not s.menu and not s.popup
+  if not cur and not K.booting and not K.saver and s.role == "desktop" and not(s.kind=="term"and K.pictureScreen())and not s.menu and not s.popup
     and not topDialog(s) and not (K.palette and K.palette.screen == s) then
     local w = K.focus
     if w and w.screen == s and w.state ~= "min" and w.buf.getCursorBlink and w.buf.getCursorBlink() then
@@ -3616,6 +3661,15 @@ local function keyboard(ev)
   if e ~= "key_up" and wakeSaver() then return end
   if K.booting then return end
   local alt = held[keys.leftAlt] or held[keys.rightAlt]
+  local pictureTarget=K.pictureScreen()
+  if pictureTarget then
+    if e=="key"and((alt and ev[2]==keys.a)or ev[2]==keys.f1)then K.launch("agent",{},{screen=pictureTarget});return end
+    for _,ss in ipairs(screens)do local dialog=topDialog(ss);if dialog and not dialog.field then
+      if e=="key"and ev[2]==keys.enter then answer(ss,dialog,dialog.enterChoice or 1)end
+      return
+    end end
+    inputConsole.keyboard(ev,pictureTarget);return
+  end
   if e == "key" and ev[2] == keys.f1 then K.launch("agent", nil, {screen=screenByName.term}); return end
   if alt and e == "key" and shortcut(ev[2]) then markAll(); return end
   if alt and e == "char" then return end
@@ -3624,7 +3678,7 @@ local function keyboard(ev)
     local d = topDialog(s)
     if d and e ~= "key_up" then
       if d.field then dialogInput(s, d, ev)
-      elseif e == "key" and ev[2] == keys.enter then answer(s, d, #d.buttons) end
+      elseif e == "key" and ev[2] == keys.enter then answer(s, d, d.enterChoice or #d.buttons) end
       return
     end
   end
@@ -3705,7 +3759,10 @@ function K.launch(id, args, opts)
     if id=="files"and args[1]then s.picture.path=args[1]end
     markDirty(s);return {id=0,virtual=true}
   end
-  if s.role == "picture" and not K.canTouchApp(app,s) then s = screenByName.term; K.notify("Opened on computer", app.name, {quiet=true,silent=true})
+  if s.role == "picture" and not K.canTouchApp(app,s) then
+    K.dialog({screen=s,title="Open desktop tool?",text=app.name.." needs the desktop. Switch to Full Sync?",buttons={"Cancel","Full Sync"},cb=function(i)if i==2 then K.setFullSync(true);K.launch(id,args,{screen=screenByName.term})end end})
+    return nil,"Full Sync required"
+
   elseif s.role ~= "desktop" and s.role ~= "picture" then s = K.homeScreen() end
   if s.role == "picture" and app.touch then s.picture=s.picture or {page=1,path="/",category="Favorites"};s.picture.view=id end
   if id=="agent"then
@@ -3728,7 +3785,7 @@ function K.launch(id, args, opts)
   end
   local title = opts.title or (app.needsFile and args[1] and (app.name .. ": " .. fs.getName(args[1]))) or app.name
   local p = K.spawn(fn, { title = title, app = app, window = { screen = s, w = app.w, h = app.h } })
-  if s.role=="picture" then s.picture.appPid=p.id end
+  if s.role=="picture" then s.picture.appPid=p.id;markDirty(screenByName.term)end
   K.sfx("open")
   return p
 end
@@ -4003,6 +4060,7 @@ command("screen", "screen <name> <picture|desktop|mirror|panel|off> [scale]", "S
   if name == "term" then error("The computer's own screen is always a desktop", 0) end
   local conf = K.cfg.screens[name] or {}
   conf.role = role
+  if name==K.primaryMonitorName then K.cfg.fullSync=role=="mirror"end
   if a[3] then conf.scale = a[3] == "auto" and "auto" or tonumber(a[3]) end
   K.cfg.screens[name] = conf
   K.saveConfig()
@@ -4034,6 +4092,10 @@ end)
 command("ai", "ai [task]", "Open the ccOS agent or give it a task", function(a,out)
   K.launch("agent", nil, {screen=screenByName.term})
   if #a>0 then local ok,err=K.agent.start(table.concat(a," ")); if not ok then out(err,T.warn)end end
+end)
+command("update","update [check]","Check for or install ccOS updates",function(a,out)
+  local ok,why;if a[1]=="check"then ok,why=K.updates.check(true)else ok,why=K.updates.install()end
+  if not ok then out(why,T.warn)end
 end)
 command("timezone", "timezone <zone|fixed> [minutes]", "Set the system time zone", function(a,out)
   if not a[1]then out(clock.label(K.cfg));return end
@@ -4096,6 +4158,8 @@ end
 function API.theme() return T end
 -- Whether the last tap or click came from a monitor.
 function API.touchInput() return K.lastTouch == true end
+function API.pictureScreenName()local s=K.pictureScreen();return s and s.name end
+function API.setFullSync(on)return K.setFullSync(on)end
 function API.isTouch()
   local s = callerScreen()
   return s and s.touch or false
@@ -4203,19 +4267,20 @@ function API.prompt(title, text, default)
 end
 
 function K.validateSetting(key, value)
-  local booleans={clock24=true,seconds=true,leadingZero=true,sounds=true,touchSounds=true,shadows=true,swapSpeakers=true,agentConfirm=true}
+  local booleans={clock24=true,seconds=true,leadingZero=true,sounds=true,touchSounds=true,shadows=true,swapSpeakers=true,agentConfirm=true,fullSync=true,autoUpdates=true}
   if booleans[key] then return type(value)=="boolean", "Expected a boolean" end
   if key=="timezone" then return type(value)=="string" and clock.valid(value), "Unsupported time zone" end
   if key=="theme" then return type(value)=="string" and THEMES[value]~=nil, "Unknown theme" end
   if key=="wallpaper" then for _,v in ipairs(gfx.WALLPAPERS)do if value==v then return true end end;return false,"Unknown wallpaper" end
   if key=="user" then return type(value)=="string" and #value>0 and #value<=40,"Name must be 1-40 characters" end
-  if key=="agentModel" then return type(value)=="string" and #value<=160 and value:match("^[%w%._:/%-]+$")~=nil,"Invalid model id" end
+  if key=="agentModel" then return type(value)=="string" and #value<=160 and value:match("^[%w%._:/~%-]+$")~=nil,"Invalid model id" end
   local ranges={utcOffset={-720,840},musicVolume={0,1},uiVolume={0,1},balance={-1,1},idle={0,86400},panelRotate={4,3600},agentMaxSteps={1,40},agentMaxTokens={256,8192}}
   if ranges[key]then local r=ranges[key];return type(value)=="number" and value==value and value>=r[1] and value<=r[2],"Value out of range" end
   return false,"Setting cannot be changed through this interface"
 end
 function API.config(key, value)
   if value == nil then return K.cfg[key] end
+  if key=="fullSync"then return K.setFullSync(value)end
   K.cfg[key] = value
   K.saveConfig()
   if key == "theme" then
@@ -4225,6 +4290,7 @@ function API.config(key, value)
     for _, s in ipairs(screens) do s.wallKey = nil end
   elseif key == "swapSpeakers" then
     audio.detect()
+  elseif key=="autoUpdates"and value and K.updates then K.updates.check(false)
   elseif key == "screens" then
     K.buildScreens()
   end
@@ -4242,7 +4308,7 @@ function API.screens()
 end
 function API.setScreen(name, role, scale)
   local conf = K.cfg.screens[name] or {}
-  if role then conf.role = role end
+  if role then conf.role = role;if name==K.primaryMonitorName then K.cfg.fullSync=role=="mirror"end end
   if scale then conf.scale = scale end
   K.cfg.screens[name] = conf
   K.saveConfig()
@@ -4403,6 +4469,7 @@ local tickTimer, animTimer
 local function onTick()
   tickTimer = os.startTimer(1)
   local t = now()
+  if K.updates then K.updates.maybePrompt()end
   if K.booting and t - K.bootStart > 2200 then
     K.booting = false
     markAll()
@@ -4518,11 +4585,14 @@ local function boot()
   API.ui = ui
   K.agent = loadModule(ROOT .. "/lib/agent.lua")(K, json)
   API.agent = K.agent
+  K.updates=loadModule(ROOT.."/lib/updater.lua")(K,json,sha256,installer)
+  API.updates=K.updates
   API.suite = loadModule(ROOT .. "/lib/suite.lua")
   writeBin()
   K.booting, K.bootStart = true, now()
   K.spawn(audio.service, { title = "Audio", service = true })
   K.spawn(hwService, { title = "Devices", service = true })
+  K.spawn(K.updates.service,{title="Update monitor",service=true})
   audio.boot()
   tickTimer = os.startTimer(0.2)
   markAll()
@@ -4570,13 +4640,14 @@ elseif K.power == "shutdown" then
 else
   print("Left ccOS. Type " .. ROOT .. "/kernel.lua to return.")
 end
-]=] },
-  { "ccos/lib/agent.lua", [=[
+]=]},
+  {"ccos/lib/agent.lua",[=[
 -- OpenRouter agent: native tool loop, bounded requests, local credentials,
 -- reversible file changes and a review queue shared by every OS screen.
 return function(K, J)
   local A = { busy=false, status="Ready", messages={}, activity={}, conversation={}, pending=nil, waiting=false }
   local ROOT, ENDPOINT = K.root, "https://openrouter.ai/api/v1/chat/completions"
+  local MODELS="https://openrouter.ai/api/v1/models"
   local keyPath = ROOT .. "/private/openrouter.cfg"
   local tools, byName, serial = {}, {}, 0
   local floor,min,max = math.floor,math.min,math.max
@@ -4611,7 +4682,7 @@ return function(K, J)
   end
   function A.configured() return #key()>0 end
   function A.setKey(value)
-    assert(not A.busy and not A.inflight,"Stop the current task and wait for its request to close before changing the API key")
+    assert(not A.busy and not A.inflight and not A.modelBusy,"Stop the current task and wait for its request to close before changing the API key")
     assert(type(value)=="string" and #value<=1024,"Invalid API key")
     fs.makeDir(ROOT.."/private")
     local h=assert(fs.open(keyPath,"w"),"Cannot save key"); h.write((value:gsub("%s+",""))); h.close(); changed()
@@ -4812,8 +4883,68 @@ return function(K, J)
     if not ok then error(clean(result),0)end
     return result
   end
+  local function failure(reason,handle,savedRaw,savedCode)
+    local code,raw=savedCode or 0,savedRaw or ""
+    if handle then
+      if handle.getResponseCode then local ok,n=pcall(handle.getResponseCode);if ok then code=n end end
+      if handle.read then local ok,body=pcall(handle.read,32768);if ok then raw=body or ""end end
+      pcall(handle.close)
+    end
+    local message=tostring(reason or "Request failed")
+    local ok,data=pcall(J.decode,raw)
+    if ok and type(data)=="table"and data.error then
+      local e=data.error
+      if type(e)=="table"then
+        code=tonumber(e.code)or code;message=tostring(e.message or message)
+        if type(e.metadata)=="table"and e.metadata.raw then message=message.." | Provider: "..tostring(e.metadata.raw):sub(1,1500)end
+      else message=tostring(e)end
+    elseif raw~=""then message=message.." | "..raw:sub(1,1200)end
+    local hints={ [401]="Check your saved API key.",[402]="Check OpenRouter credits.",[404]="This model/provider route is unavailable. Refresh Models or check your OpenRouter provider/privacy settings.",[429]="Rate limit reached; retry later.",[503]="The provider is unavailable; retry later or choose another model." }
+    A.lastError={code=code,message=clean(message),model=K.cfg.agentModel}
+    return clean("OpenRouter HTTP "..code..": "..message..(hints[code]and(" "..hints[code])or ""))
+  end
+  function A.refreshModels()
+    if A.modelBusy then return false,"Model refresh already running"end
+    A.modelBusy=true;A.modelStatus="Loading OpenRouter models";changed()
+    K.spawn(function()
+      local ok,err=pcall(function()
+        assert(http and http.request,"HTTP is disabled")
+        local accepted,why=http.request({url=MODELS,method="GET",headers={Accept="application/json"},timeout=30})
+        assert(accepted~=false,why or "Model request rejected")
+        local timer=os.startTimer(35)
+        while true do
+          local e,url,h,failed=os.pullEvent()
+          if url==MODELS and e=="http_success"then
+            os.cancelTimer(timer);local readOK,raw=pcall(h.read,2097153);pcall(h.close);assert(readOK,raw);assert(raw and #raw<=2097152,"Model catalog too large")
+            local catalog=J.decode(raw);assert(type(catalog.data)=="table","Invalid model catalog")
+            local models={}
+            for _,m in ipairs(catalog.data)do
+              local supports=false;for _,param in ipairs(type(m.supported_parameters)=="table"and m.supported_parameters or {})do if param=="tools"then supports=true end end
+              if supports and type(m.id)=="string"then
+                local price=type(m.pricing)=="table"and m.pricing or {}
+                models[#models+1]={id=m.id,name=m.name or m.id,free=tonumber(price.prompt)==0 and tonumber(price.completion)==0}
+              end
+            end
+            table.sort(models,function(a,b)if a.free~=b.free then return a.free end;return a.id<b.id end)
+            A.models=models;A.modelStatus=#models.." tool-capable models";return
+          elseif url==MODELS and e=="http_failure"then os.cancelTimer(timer);error(failure(h,failed),0)
+          elseif e=="timer"and url==timer then error("Model catalog timed out",0)end
+        end
+      end)
+      A.modelBusy=false;if not ok then A.modelStatus=clean(err)end;changed()
+    end,{title="OpenRouter models",service=true})
+    return true
+  end
+  function A.selectModel(id)
+    if type(id)~="string"or #id>160 or not id:match("^[%w%._:/~%-]+$")then return false,"Invalid model id"end
+    if A.models and id~="openrouter/auto"then
+      local found=false;for _,m in ipairs(A.models)do if m.id==id then found=true end end
+      if not found then return false,"Model is not in the tool-capable catalog. Refresh Models and choose an available id."end
+    end
+    K.api.config("agentModel",id);A.lastError=nil;changed();return true
+  end
   local function request(messages)
-    local body=clean(J.encode({model=K.cfg.agentModel,messages=J.array(messages),tools=J.array(tools),tool_choice="auto",parallel_tool_calls=false,
+    local body=clean(J.encode({model=K.cfg.agentModel,messages=J.array(messages),tools=J.array(tools),tool_choice="auto",
       provider={require_parameters=true},max_tokens=K.cfg.agentMaxTokens,stream=false}))
     assert(#body<=196608,"Conversation is too large; start a new chat")
     assert(http and http.request,"Enable HTTP in CC: Tweaked to use OpenRouter")
@@ -4827,12 +4958,12 @@ return function(K, J)
         A.waiting,A.inflight=false,false;os.cancelTimer(timer)
         local code=handle.getResponseCode and handle.getResponseCode()or 200
         local raw=handle.read(262144)or "";handle.close()
-        assert(code>=200 and code<300,"OpenRouter HTTP "..code)
-        local data=J.decode(raw);assert(not data.error,clean(data.error and(data.error.message or J.encode(data.error))))
+        if code<200 or code>=300 then error(failure("Request failed",nil,raw,code),0)end
+        local data=J.decode(raw);if data.error then error(failure("Request failed",nil,raw,code),0)end
         return data
       elseif e=="http_failure"and url==ENDPOINT then
-        A.waiting,A.inflight=false,false;os.cancelTimer(timer);if failed then failed.close()end
-        error(clean("OpenRouter request failed: "..tostring(handle)),0)
+        A.waiting,A.inflight=false,false;os.cancelTimer(timer)
+        error(failure(handle,failed),0)
       elseif e=="timer"and url==timer then A.waiting=false;error("OpenRouter timed out; retry the task",0)
       elseif e=="ccos_agent_cancel"or A.cancelled then A.waiting=false;os.cancelTimer(timer);error("Cancelled",0)end
     end
@@ -4843,6 +4974,7 @@ return function(K, J)
     if A.inflight then return false,"The previous HTTP request is still closing; retry shortly"end
     if not A.configured()then return false,"Add your OpenRouter API key in Agent settings"end
     if type(prompt)~="string"or prompt:match("^%s*$")or #prompt>12000 then return false,"Enter a task (up to 12,000 characters)"end
+    if A.models and K.cfg.agentModel~="openrouter/auto"then local valid,why=A.selectModel(K.cfg.agentModel);if not valid then return false,why end end
     A.busy,A.cancelled,A.status=true,false,"Thinking";say("user",prompt)
     K.spawn(function()
       -- Keep a bounded completed turn history; interrupted tool sequences are never reused.
@@ -4892,14 +5024,15 @@ return function(K, J)
   end
   -- Close late responses from cancelled/timed-out requests without leaking handles.
   function A.consume(ev)
+    if not A.modelBusy and ev[2]==MODELS and(ev[1]=="http_success"or ev[1]=="http_failure")then local h=ev[1]=="http_success"and ev[3]or ev[4];if h and h.close then pcall(h.close)end;return true end
     if not A.waiting and ev[2]==ENDPOINT and (ev[1]=="http_success"or ev[1]=="http_failure")then
       local h=ev[1]=="http_success"and ev[3]or ev[4];if h and h.close then pcall(h.close)end;A.inflight=false;return true
     end
   end
   return A
 end
-]=] },
-  { "ccos/lib/audio.lua", [=[
+]=]},
+  {"ccos/lib/audio.lua",[=[
 -- ccOS audio: two speakers as a stereo pair.
 --
 -- Everything that touches a speaker runs in the audio service coroutine,
@@ -5529,8 +5662,8 @@ end
 
 return A
 end
-]=] },
-  { "ccos/lib/catalog.lua", [=[
+]=]},
+  {"ccos/lib/catalog.lua",[=[
 -- Shared category and tool registry. Each entry maps to a real implementation.
 local C = { categories = { "Favorites", "Files", "Time", "Media", "Math", "Text", "Developer", "System", "Games", "AI" } }
 C.base = { files="Files", viewer="Files", terminal="Developer", edit="Developer", lua="Developer", paint="Media",
@@ -5555,11 +5688,11 @@ C.tools = {
   {"textstats","Text statistics","Words, lines, bytes and characters","Text"},
   {"textcase","Change case","Upper, lower and title case","Text"},
   {"lines","Line tools","Sort, reverse and deduplicate lines","Text"},
-  {"replace","Find & replace","Literal text replacement and save","Text",false},
+  {"replace","Find & replace","Literal text replacement and save","Text"},
   {"urlencode","URL encoder","Encode and decode URL components","Text"},
   {"base64","Base64","Encode and decode text","Text"},
   {"json","JSON tools","Validate, inspect and format JSON","Developer"},
-  {"http","HTTP inspector","GET a URL and inspect its response","Developer",false},
+  {"http","HTTP inspector","GET a URL and inspect its response","Developer"},
   {"network","Network monitor","Inspect modems and incoming messages","Developer"},
   {"redstone","Redstone","Digital inputs and output switches","System"},
   {"analog","Analog signals","Read and adjust redstone levels","System"},
@@ -5591,8 +5724,8 @@ function C.apps()
   return list
 end
 return C
-]=] },
-  { "ccos/lib/gfx.lua", [=[
+]=]},
+  {"ccos/lib/gfx.lua",[=[
 -- ccOS graphics: pixel art drawn with teletext characters, big text,
 -- app icons and generated wallpapers.
 --
@@ -6002,8 +6135,139 @@ function gfx.logo(scale)
 end
 
 return gfx
-]=] },
-  { "ccos/lib/json.lua", [=[
+]=]},
+  {"ccos/lib/input.lua",[=[
+-- Computer keyboard bridge for Big Picture. Never renders the desktop.
+return function(K,T)
+  local I={draft="",error=nil}
+  local function fieldDialog(monitor)
+    for _,s in ipairs(K.screens)do
+      local d=s.dialogs and s.dialogs[1]
+      if d and d.field then return d end
+    end
+  end
+  function I.keyboard(ev,monitor)
+    local e=ev[1]
+    local d=fieldDialog(monitor)
+    if d then
+      if e=="char"or e=="paste"then d.field.text=(d.field.text..ev[2]):sub(1,d.field.secret and 1024 or 12000)
+      elseif e=="key"and ev[2]==keys.backspace then d.field.text=d.field.text:sub(1,-2)
+      elseif e=="key"and ev[2]==keys.enter then K.answerDialog(d.screen,d,#d.buttons)
+      elseif e=="key"and ev[2]==keys.escape then K.answerDialog(d.screen,d,1)end
+      K.markAll();return
+    end
+    local agent=monitor.picture and monitor.picture.view=="agent"
+    if agent and K.agent and not K.agent.busy then
+      if e=="char"or e=="paste"then I.draft=(I.draft..ev[2]):sub(1,12000);I.error=nil
+      elseif e=="key"and ev[2]==keys.backspace then I.draft=I.draft:sub(1,-2)
+      elseif e=="key"and ev[2]==keys.enter then local ok,why=K.agent.start(I.draft);if ok then I.draft=""else I.error=why end end
+      K.markAll()
+    end
+  end
+  function I.draw(s,monitor)
+    local b,W,H=s.buf,s.w,s.h
+    local function text(x,y,t,fg,bg)
+      if y<1 or y>H then return end
+      t=tostring(t or ""):sub(1,math.max(0,W-x+1));b.setCursorPos(x,y);b.setTextColor(fg or T.text);b.setBackgroundColor(bg or T.bg);b.write(t)
+    end
+    local function fill(y,h,bg)for yy=y,math.min(H,y+h-1)do text(1,yy,(" "):rep(W),bg,bg)end end
+    local function button(x,y,label,fn)
+      text(x,y," "..label.." ",T.text,T.raised)
+      s.hits[#s.hits+1]={x1=x,y1=y,x2=x+#label+1,y2=y,fn=fn}
+    end
+    fill(1,H,T.bg);fill(1,1,T.surface)
+    text(2,1,"ccOS  |  Monitor input",T.accent,T.surface)
+    button(2,H,"AI Agent",function()K.launch("agent",{},{screen=monitor})end)
+    button(13,H,"Settings",function()monitor.picture=monitor.picture or {};monitor.picture.view="settings";K.markAll()end)
+    button(W-12,H,"Full Sync",function()K.setFullSync(true)end)
+    local d=fieldDialog(monitor)
+    local agent=monitor.picture and monitor.picture.view=="agent"
+    local body,title,secret
+    if d then title,body,secret=d.title,d.field.text,d.field.secret
+    elseif agent and not K.agent.busy then title,body="Message AI Agent",I.draft
+    else
+      text(2,4,"Big Picture is on "..monitor.name,T.text)
+      text(2,6,"Tap a tool or prompt on the monitor.",T.muted)
+      text(2,7,"Type here when it asks for text.",T.muted)
+      if agent and K.agent.busy then text(2,9,"AI Agent: "..K.agent.status,T.accent)end
+      if K.updates and K.updates.available then
+        button(2,H-3,"Update available",function()K.updates.prompt()end)
+      end
+      return
+    end
+    text(2,3,title,T.text)
+    text(2,5,secret and "Hidden input. Enter to save; Esc to cancel."or "Enter to submit. Esc cancels a prompt.",T.muted)
+    local shown=secret and("*"):rep(#body)or body
+    local width=math.max(1,W-4);local room=math.max(1,H-10)
+    local chunks={};if shown==""then chunks[1]=""end
+    for i=1,#shown,width do chunks[#chunks+1]=shown:sub(i,i+width-1):gsub("\n"," ")end
+    local first=math.max(1,#chunks-room+1)
+    fill(7,room,T.surface)
+    for i=first,#chunks do text(3,7+i-first,chunks[i],T.text,T.surface)end
+    local line=chunks[#chunks]or ""
+    s.cursor={x=math.min(W-1,3+#line),y=math.min(H-4,7+#chunks-first),color=T.accent}
+    if d then
+      button(2,H-2,"Cancel",function()K.answerDialog(d.screen,d,1)end)
+      button(W-11,H-2,d.buttons[#d.buttons]or "Submit",function()K.answerDialog(d.screen,d,#d.buttons)end)
+    else
+      button(2,H-2,"Clear",function()I.draft="";K.markAll()end)
+      button(W-8,H-2,"Send",function()I.keyboard({"key",keys.enter},monitor)end)
+    end
+    if I.error then text(2,H-3,I.error,T.warn)end
+  end
+  return I
+end
+]=]},
+  {"ccos/lib/install.lua",[=[
+-- Shared transactional installer, used by setup and the updater.
+local M={}
+function M.allowed(path)
+  return type(path)=="string"and(path=="update.lua"or path=="ccos/kernel.lua"or path=="ccos/setup.lua"or path=="ccos/update.lua"or path:match("^ccos/apps/[%w_%-]+%.lua$")or path:match("^ccos/lib/[%w_%-]+%.lua$"))and fs.combine(path,"")==path
+end
+function M.apply(files,options)
+  options=options or {};local changes,seen={},{}
+  local needed=8192
+  for _,file in ipairs(files)do
+    local path,body=file[1],file[2]
+    assert(M.allowed(path),"Update attempted an unowned path: "..tostring(path))
+    assert(not seen[path],"Duplicate update path");seen[path]=true
+    assert(type(body)=="string"and #body<=524288,"Invalid source file")
+    assert(load(body,"@"..path,"t",{}),"Invalid Lua in "..path)
+    local dest="/"..path
+    assert(not fs.isDir(dest),"A directory conflicts with "..dest)
+    local h=fs.open(dest,"r");local old=h and h.readAll()or nil;if h then h.close()end
+    if old~=body then changes[#changes+1]=file;needed=needed+#body end
+  end
+  local free=fs.getFreeSpace("/")
+  assert(type(free)~="number"or free>=needed,("Need %d KB free; available %d KB"):format(math.ceil(needed/1024),type(free)=="number"and math.floor(free/1024)or 0))
+  local stage="/.ccos-stage-"..os.epoch("utc");local previous=stage.."-previous"
+  assert(not fs.exists(stage)and not fs.exists(previous),"Another installation is in progress")
+  local installed,moved={},{}
+  local ok,err=pcall(function()
+    for i,file in ipairs(changes)do
+      local path=stage.."/"..file[1];fs.makeDir(fs.getDir(path))
+      local h=assert(fs.open(path,"w"));h.write(file[2]);h.close()
+      h=assert(fs.open(path,"r"));local actual=h.readAll();h.close();assert(actual==file[2],"Verification failed: "..file[1])
+      if options.progress then options.progress(i,#changes,file[1])end
+    end
+    -- Commit without yielding. Runtime data, credentials and startup are untouched.
+    for _,file in ipairs(changes)do
+      local rel,dest=file[1],"/"..file[1]
+      if fs.exists(dest)then fs.makeDir(fs.getDir(previous.."/"..rel));fs.move(dest,previous.."/"..rel);moved[#moved+1]=rel end
+      fs.makeDir(fs.getDir(dest));fs.move(stage.."/"..rel,dest);installed[#installed+1]=rel
+    end
+  end)
+  if not ok then
+    for i=#installed,1,-1 do local p="/"..installed[i];if fs.exists(p)then fs.delete(p)end end
+    for _,rel in ipairs(moved)do fs.move(previous.."/"..rel,"/"..rel)end
+  end
+  if fs.exists(stage)then fs.delete(stage)end;if fs.exists(previous)then fs.delete(previous)end
+  if not ok then error("Installation rolled back: "..tostring(err),0)end
+  return #changes
+end
+return M
+]=]},
+  {"ccos/lib/json.lua",[=[
 -- Small bundled JSON codec; no downloads or external Lua packages required.
 local J = { null = {} }
 local arrayMT = { __json_array = true }
@@ -6099,12 +6363,12 @@ function J.decode(src)
   local v=parse(); ws(); assert(i>#src,"Trailing JSON data"); return v
 end
 return J
-]=] },
-  { "ccos/lib/picture.lua", [=[
+]=]},
+  {"ccos/lib/picture.lua",[=[
 -- Hallmark · genre: atmospheric · structure: compact tool workbench · palette: ccOS tokens
 -- Pre-emit critique: Philosophy 5, Hierarchy 4, Execution 4, Specificity 5, Restraint 5, Variety 4
 -- Touch-only presentation. Shares the kernel's audio, files and hardware;
--- never exposes a shell, editable field, file execution or keyboard prompt.
+-- routes prompt entry through the dedicated computer input console.
 return function(K, gfx, T)
   local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
   local P = {}
@@ -6155,10 +6419,10 @@ return function(K, gfx, T)
       for _, a in ipairs(K.APPS) do if a.id == view then found = a end end
       local builtin = ({home=true,music=true,files=true,reader=true,devices=true,settings=true,notifications=true,power=true})[view]
       if found and not K.canTouchApp(found,s) and not builtin then
-        K.launch(view, {}, {screen=s}); v.message="Opened on computer: "..found.name; K.markDirty(s); return
+        K.launch(view, {}, {screen=s}); v.message="Full Sync needed: "..found.name; K.markDirty(s); return
       end
       v.view, v.page, v.message, v.appPid = view, 1, nil, nil
-      K.markDirty(s)
+      K.markAll()
     end
     local function run(fn, title)
       K.spawn(function()
@@ -6386,6 +6650,10 @@ return function(K, gfx, T)
     elseif v.view == "settings" then
       local function toggle(key) K.api.config(key, not K.cfg[key]) end
       local items = {
+        {label="Full Sync with desktop",fn=function()K.setFullSync(true)end},
+        {label="Auto update checks: "..(K.cfg.autoUpdates and "On"or "Off"),fn=function()toggle("autoUpdates")end},
+        {label="Check for updates",fn=function()K.updates.check(true)end},
+        {label=K.updates and K.updates.status or "Updates",fn=function()if K.updates.available then K.updates.prompt()end end},
         { label = "Theme: " .. K.cfg.theme, detail = "Tap for next theme", fn = function()
           local i = 1; for j, id in ipairs(K.THEME_ORDER) do if id == K.cfg.theme then i = j end end
           K.api.config("theme", K.THEME_ORDER[i % #K.THEME_ORDER + 1])
@@ -6436,8 +6704,59 @@ return function(K, gfx, T)
   end
   return P
 end
-]=] },
-  { "ccos/lib/suite.lua", [=[
+]=]},
+  {"ccos/lib/sha256.lua",[=[
+-- SHA-256 for release integrity. Uses CC's bit32 or native Lua bit operations.
+local b=bit32
+if not b then
+  local native=load([[return {
+    band=function(a,c)return(a&c)&0xffffffff end,
+    bnot=function(a)return(~a)&0xffffffff end,
+    bxor=function(a,c,d)local x=a~c;if d then x=x~d end;return x&0xffffffff end,
+    rshift=function(a,n)return(a>>n)&0xffffffff end,
+    rrotate=function(a,n)return((a>>n)|(a<<(32-n)))&0xffffffff end
+  }]])
+  assert(native,"SHA-256 needs bit32");b=native()
+end
+local band,bnot,bxor,shr,ror=b.band,b.bnot,b.bxor,b.rshift,b.rrotate
+local floor=math.floor
+local MOD=4294967296
+local constants={
+  0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+  0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+  0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+  0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+  0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+  0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+  0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+  0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2}
+local function be(n)return string.char(floor(n/16777216)%256,floor(n/65536)%256,floor(n/256)%256,n%256)end
+local M={}
+function M.digest(text,yieldFn)
+  local len=#text
+  text=text.."\128"..("\0"):rep((55-len)%64)..be(floor(len/536870912))..be((len*8)%MOD)
+  local h={0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19}
+  local w={}
+  for start=1,#text,64 do
+    for i=0,15 do local a,c,d,e=text:byte(start+i*4,start+i*4+3);w[i]=a*16777216+c*65536+d*256+e end
+    for i=16,63 do
+      local x,y=w[i-15],w[i-2]
+      w[i]=(w[i-16]+bxor(ror(x,7),ror(x,18),shr(x,3))+w[i-7]+bxor(ror(y,17),ror(y,19),shr(y,10)))%MOD
+    end
+    local a,c,d,e,f,g,j,k=table.unpack(h)
+    for i=0,63 do
+      local t1=(k+bxor(ror(f,6),ror(f,11),ror(f,25))+bxor(band(f,g),band(bnot(f),j))+constants[i+1]+w[i])%MOD
+      local t2=(bxor(ror(a,2),ror(a,13),ror(a,22))+bxor(band(a,c),band(a,d),band(c,d)))%MOD
+      k,j,g,f,e,d,c,a=j,g,f,(e+t1)%MOD,d,c,a,(t1+t2)%MOD
+    end
+    local values={a,c,d,e,f,g,j,k};for i=1,8 do h[i]=(h[i]+values[i])%MOD end
+    if yieldFn and floor((start-1)/64)%64==63 then yieldFn()end
+  end
+  local out={};for i=1,8 do out[i]=("%08x"):format(h[i])end;return table.concat(out)
+end
+return M
+]=]},
+  {"ccos/lib/suite.lua",[=[
 -- ccOS tool workbench. One responsive toolkit, independent working tools.
 return function(id, initial)
   local ui,T,J=ccos.ui,ccos.ui.T,ccos.json
@@ -6458,7 +6777,6 @@ return function(id, initial)
   local function status(msg)app.message=tostring(msg);app.messageAt=now()end
   local function save()fs.makeDir("/ccos/data");writeFile(DATA,textutils.serialize(app.data))end
   local function prompt(title,default)
-    if ui.touch()then status("Enter text on the computer or ask the AI Agent");return nil end
     return ccos.prompt(title,"",default or "")
   end
   local function safe(fn)
@@ -6500,7 +6818,7 @@ return function(id, initial)
   local function numeric(g,y)
     label(g,y,"Value: "..("%.8g"):format(app.value),T.accent)
     local items={{"-10",function()app.value=app.value-10 end},{"-1",function()app.value=app.value-1 end},{"+1",function()app.value=app.value+1 end},{"+10",function()app.value=app.value+10 end},{"/10",function()app.value=app.value/10 end},{"x10",function()app.value=app.value*10 end}}
-    if not ui.touch()then items[#items+1]={"Set",function()local n=prompt("Value",tostring(app.value));if tonumber(n)then app.value=tonumber(n)end end}end
+    do items[#items+1]={"Set",function()local n=prompt("Value",tostring(app.value));if tonumber(n)then app.value=tonumber(n)end end}end
     return actions(g,y+1,items)
   end
   local function chooseFile()
@@ -6520,10 +6838,10 @@ return function(id, initial)
   end
   local function textActions(g,y)
     local buttons={{"Load file",chooseFile},{"Save result",function()
-      local path=ui.touch()and("/notes/"..id.."-"..now()..".txt")or prompt("Save result","/notes/"..id..".txt")
+      local path=prompt("Save result","/notes/"..id..".txt")
       if path and path~=""then safe(function()writeFile(path,app.result~=""and app.result or app.text);return "Saved "..path end)end
     end}}
-    if not ui.touch()then buttons[#buttons+1]={"Enter text",function()local text=prompt("Text",app.text);if text then app.text,app.result=text,text end end}end
+    do buttons[#buttons+1]={"Edit text",function()local text=prompt("Text",app.text);if text then app.text,app.result=text,text end end}end
     return actions(g,y,buttons)
   end
   local function b64encode(text)
@@ -6596,7 +6914,7 @@ return function(id, initial)
     if self.browser then browser(g,y)
     elseif id=="notes"or id=="journal"then
       local buttons={{"Browse notes",function()self.source=nil;self.text=""end}}
-      if not ui.touch()then
+      do
         buttons[#buttons+1]={"New",function()
           local name=id=="journal"and ccos.date("%Y-%m-%d")..".txt"or prompt("Note name","note.txt")
           if name and name~=""then local body=prompt("Note text","");if body then local p="/notes/"..fs.getName(name);writeFile(p,body);loadText(p)end end
@@ -6609,12 +6927,12 @@ return function(id, initial)
       else paged(g,noteList(),y,function(e)loadText(e.path)end)end
     elseif id=="checklist"then
       local buttons={{"Clear done",function()local keep={};for _,it in ipairs(self.data.items)do if not it.done then keep[#keep+1]=it end end;self.data.items=keep;save()end}}
-      if not ui.touch()then buttons[#buttons+1]={"Add task",function()local text=prompt("New task","");if text and text~=""then self.data.items[#self.data.items+1]={text=text,done=false};save()end end}end
+      do buttons[#buttons+1]={"Add task",function()local text=prompt("New task","");if text and text~=""then self.data.items[#self.data.items+1]={text=text,done=false};save()end end}end
       y=actions(g,y,buttons)
       local items={};for i,it in ipairs(self.data.items)do items[#items+1]={label=(it.done and "[x] "or "[ ] ")..it.text,index=i}end
       paged(g,items,y,function(e)local item=self.data.items[e.index];item.done=not item.done;save()end)
     elseif id=="bookmarks"then
-      local buttons={};if not ui.touch()then buttons={{"Add",function()local name=prompt("Bookmark name","");if name then local p=prompt("Path or URL","");if p then self.data.items[#self.data.items+1]={label=name,path=p};save()end end end}}end
+      local buttons={};do buttons={{"Add",function()local name=prompt("Bookmark name","");if name then local p=prompt("Path or URL","");if p then self.data.items[#self.data.items+1]={label=name,path=p};save()end end end}}end
       y=actions(g,y,buttons);paged(g,self.data.items,y,function(e)
         if e.path:match("^https?://")then ccos.open("http",e.path)elseif fs.exists(e.path)then ccos.openFile(e.path)else status("Path is unavailable")end
       end)
@@ -6772,7 +7090,7 @@ return function(id, initial)
       local items={};for _,d in ipairs(ccos.hw().drives or {})do items[#items+1]={label=d.name..": "..(d.label or d.audio or(d.present and "Disk"or "Empty")),drive=d}end
       if self.drive then
         local d=self.drive;y=actions(g,y,{{"< Drives",function()self.drive=nil end},{"Browse",function()if d.mount then ccos.open("files","/"..d.mount)end end},{"Eject",function()peripheral.call(d.name,"ejectDisk");self.drive=nil end}})
-        if not ui.touch()then y=actions(g,y,{{"Label",function()local name=prompt("Disk label",d.label or "");if name then peripheral.call(d.name,"setDiskLabel",name);os.queueEvent("ccos_hw")end end}})end
+        do y=actions(g,y,{{"Label",function()local name=prompt("Disk label",d.label or "");if name then peripheral.call(d.name,"setDiskLabel",name);os.queueEvent("ccos_hw")end end}})end
         output(g,y,textutils.serialize(d))
       else paged(g,items,y,function(e)self.drive=e.drive end)end
     elseif id=="http"then
@@ -6832,8 +7150,8 @@ return function(id, initial)
   end
   return app
 end
-]=] },
-  { "ccos/lib/time.lua", [=[
+]=]},
+  {"ccos/lib/time.lua",[=[
 -- One clock policy for the desktop, monitors, apps, notifications and agent.
 local M = {}
 local floor = math.floor
@@ -6904,8 +7222,8 @@ function M.label(cfg)
 end
 function M.valid(zone) return zone == "local" or zone == "fixed" or zones[zone] ~= nil end
 return M
-]=] },
-  { "ccos/lib/ui.lua", [=[
+]=]},
+  {"ccos/lib/ui.lua",[=[
 -- ccOS app toolkit: themed drawing, buttons, scrolling lists and an
 -- event loop. Apps are ordinary CC programs drawing to `term`; this keeps
 -- them short and consistent.
@@ -7211,8 +7529,121 @@ function ui.run(app)
 end
 
 return ui
-]=] },
-  { "ccos/setup.lua", [=[
+]=]},
+  {"ccos/lib/updater.lua",[=[
+-- Opt-in installation after a version prompt. Checks are quiet while unchanged.
+return function(K,J,SHA,installer)
+  local U={status="Not checked",busy=false,available=nil,latest=nil}
+  local ROOT="https://raw.githubusercontent.com/mzyhot/ccOS/"
+  local HEAD="https://api.github.com/repos/mzyhot/ccOS/git/ref/heads/main"
+  local function changed()K.markAll();os.queueEvent("ccos_updates")end
+  local function yieldFrame()
+    local timer=os.startTimer(0)
+    repeat local e,id=os.pullEvent("timer")until id==timer
+  end
+  function U.newer(a,b)
+    local aa,bb={},{};for n in tostring(a):gmatch("%d+")do aa[#aa+1]=tonumber(n)end;for n in tostring(b):gmatch("%d+")do bb[#bb+1]=tonumber(n)end
+    for i=1,math.max(#aa,#bb)do if(aa[i]or 0)~=(bb[i]or 0)then return(aa[i]or 0)>(bb[i]or 0)end end;return false
+  end
+  local function get(url,limit)
+    assert(http and http.request,"HTTP is disabled")
+    local ok,why=http.request({url=url,method="GET",headers={Accept="application/json",["User-Agent"]="ccOS-Updater"},redirect=true,timeout=25})
+    assert(ok~=false,why or "Request rejected")
+    local timer=os.startTimer(30)
+    while true do
+      local e,which,response,failed=os.pullEvent()
+      if which==url and(e=="http_success"or e=="http_failure")then
+        os.cancelTimer(timer);local h=e=="http_success"and response or failed
+        local code=h and h.getResponseCode and h.getResponseCode()or(e=="http_success"and 200 or 0)
+        local body=""
+        if h then local yes,raw=pcall(h.read,limit+1);pcall(h.close);assert(yes,raw);body=raw or ""end
+        assert(e=="http_success"and code>=200 and code<300,"Update HTTP "..code..": "..tostring(e=="http_failure"and response or "request failed"))
+        assert(#body<=limit,"Update response exceeds size limit")
+        return body
+      elseif e=="timer"and which==timer then error("Update request timed out",0)end
+    end
+  end
+  local function release()
+    local ref="main"
+    local ok,head=pcall(function()return J.decode(get(HEAD,16384))end)
+    if ok and head.object and type(head.object.sha)=="string"and head.object.sha:match("^%x+$")and #head.object.sha==40 then ref=head.object.sha end
+    local manifest=J.decode(get(ROOT..ref.."/version.json",131072))
+    assert(type(manifest.version)=="string"and manifest.version:match("^%d+%.%d+%.?%d*$"),"Invalid release version")
+    assert(type(manifest.files)=="table"and #manifest.files>0 and #manifest.files<=100,"Invalid release manifest")
+    local seen,total={},0
+    for _,f in ipairs(manifest.files)do
+      assert(installer.allowed(f.path)and not seen[f.path],"Invalid release file path");seen[f.path]=true
+      assert(type(f.source)=="string"and(f.source=="update.lua"or f.source=="src/"..f.path),"Invalid release source")
+      assert(type(f.bytes)=="number"and f.bytes>=0 and f.bytes<=524288,"Invalid file size")
+      assert(type(f.sha256)=="string"and #f.sha256==64 and f.sha256:match("^%x+$"),"Invalid file checksum")
+      total=total+f.bytes
+    end
+    assert(total<=2097152 and seen["ccos/kernel.lua"]and seen["update.lua"],"Incomplete or oversized release")
+    manifest.ref=ref;return manifest
+  end
+  function U.prompt()
+    if not U.available or U.busy or U.promptOpen then return end
+    for _,s in ipairs(K.screens)do if s.dialogs and #s.dialogs>0 then U.pendingPrompt=true;return end end
+    U.pendingPrompt=false;U.promptOpen=true
+    local version=U.available.version
+    U.prompted=version
+    K.dialog({detached=true,screen=K.pictureScreen and K.pictureScreen()or K.homeScreen(),title="ccOS "..version.." available",text="Install update and restart? Your settings, files and API key are kept. Open windows will close.",buttons={"Later","Update & restart"},enterChoice=1,cb=function(i)U.promptOpen=false;if i==2 then U.install()end end})
+  end
+  function U.maybePrompt()if U.pendingPrompt and U.available then U.prompt()end end
+  function U.check(manual)
+    if U.busy then return false,"An update operation is already running"end
+    U.busy=true;U.status="Checking for updates";changed()
+    K.spawn(function()
+      local ok,result=pcall(release)
+      U.busy=false
+      if ok then
+        U.latest=result.version
+        U.available=U.newer(result.version,K.version)and result or nil
+        U.status=U.available and("Update "..result.version.." available")or "Up to date"
+        if U.available and(manual or(K.cfg.autoUpdates and U.prompted~=result.version))then U.prompt()
+        elseif manual and not U.available then K.notify("ccOS updates","You are up to date",{quiet=true})end
+      else U.status=tostring(result);if manual then K.notify("Update check failed",U.status,{quiet=true})end end
+      changed()
+    end,{title="Update check",service=true})
+    return true
+  end
+  function U.install()
+    if U.busy then return false,"An update operation is already running"end
+    U.busy=true;U.status="Preparing update";changed()
+    K.spawn(function()
+      local ok,err=pcall(function()
+        local m=U.available or release()
+        if not U.newer(m.version,K.version)then U.status="Up to date";return end
+        local files={}
+        for i,f in ipairs(m.files)do
+          U.status="Downloading "..i.."/"..#m.files..": "..f.path;changed()
+          local body=get(ROOT..m.ref.."/"..f.source,524288)
+          assert(#body==f.bytes and SHA.digest(body,yieldFrame)==f.sha256:lower(),"Checksum mismatch: "..f.path..". No code was changed.")
+          files[#files+1]={f.path,body}
+        end
+        if K.agent and K.agent.busy then K.agent.cancel()end
+        U.status="Installing verified update";changed()
+        installer.apply(files,{progress=function(i,n,path)U.status="Staging "..i.."/"..n..": "..path;changed();yieldFrame()end})
+        U.status="Restarting into ccOS "..m.version;changed();K.power="reboot";K.running=false
+      end)
+      U.busy=false
+      if not ok then U.status=tostring(err);K.notify("Update failed",U.status,{quiet=true});K.dialog({detached=true,screen=K.pictureScreen and K.pictureScreen()or K.homeScreen(),title="Update failed",text=U.status,buttons={"OK"}})end
+      changed()
+    end,{title="ccOS updater",service=true})
+    return true
+  end
+  function U.service()
+    local first=true
+    while true do
+      local timer=os.startTimer(first and 8 or 21600);first=false
+      repeat local e,id=os.pullEvent()until e=="timer"and id==timer
+      if K.cfg.autoUpdates then U.check(false)end
+    end
+  end
+  return U
+end
+]=]},
+  {"ccos/setup.lua",[=[
 -- ccOS first-run setup. Runs after the self-contained root setup.lua installer.
 local ROOT="/ccos"
 local function loadModule(name)return assert(loadfile(ROOT.."/lib/"..name..".lua"))()end
@@ -7297,53 +7728,107 @@ saveFile("/startup.lua",startup)
 print("Setup complete. Restarting into ccOS...")
 sleep(0.5)
 os.reboot()
-]=] },
+]=]},
+  {"ccos/update.lua",[=[
+-- Standalone updater, including a bridge for ccOS 2.0 installations.
+if ccos and ccos.updates then
+  local ok,why=ccos.updates.install()
+  if not ok then printError(why)else print("ccOS updater started. The computer will restart when installation finishes.")end
+  return
+end
+if not fs.exists("/ccos/kernel.lua")or not fs.exists("/ccos/config.cfg")then printError("Install ccOS with setup.lua first.");return end
+if not http then printError("Enable the HTTP API to update ccOS.");return end
+local url="https://raw.githubusercontent.com/mzyhot/ccOS/main/setup.lua"
+print("Downloading the ccOS updater...")
+local h,why=http.get({url=url,timeout=45})
+if not h then printError("Update download failed: "..tostring(why));return end
+local source=h.read(1048577)or "";h.close()
+if #source>1048576 then printError("Installer exceeds size limit");return end
+local fn,err=load(source,"@ccOS-update","t",_ENV)
+if not fn then printError("Invalid updater: "..tostring(err));return end
+fn("--update")
+]=]},
+  {"update.lua",[=[
+-- Standalone updater, including a bridge for ccOS 2.0 installations.
+if ccos and ccos.updates then
+  local ok,why=ccos.updates.install()
+  if not ok then printError(why)else print("ccOS updater started. The computer will restart when installation finishes.")end
+  return
+end
+if not fs.exists("/ccos/kernel.lua")or not fs.exists("/ccos/config.cfg")then printError("Install ccOS with setup.lua first.");return end
+if not http then printError("Enable the HTTP API to update ccOS.");return end
+local url="https://raw.githubusercontent.com/mzyhot/ccOS/main/setup.lua"
+print("Downloading the ccOS updater...")
+local h,why=http.get({url=url,timeout=45})
+if not h then printError("Update download failed: "..tostring(why));return end
+local source=h.read(1048577)or "";h.close()
+if #source>1048576 then printError("Installer exceeds size limit");return end
+local fn,err=load(source,"@ccOS-update","t",_ENV)
+if not fn then printError("Invalid updater: "..tostring(err));return end
+fn("--update")
+]=]},
 }
-local function writeFile(path, body)
-  fs.makeDir(fs.getDir(path))
-  local h=assert(fs.open(path,"w"),"Cannot write "..path);h.write(body);h.close()
-  local r=assert(fs.open(path,"r"));local actual=r.readAll();r.close()
-  assert(actual==body,"Verification failed: "..path)
+local installer=assert(load([=[
+-- Shared transactional installer, used by setup and the updater.
+local M={}
+function M.allowed(path)
+  return type(path)=="string"and(path=="update.lua"or path=="ccos/kernel.lua"or path=="ccos/setup.lua"or path=="ccos/update.lua"or path:match("^ccos/apps/[%w_%-]+%.lua$")or path:match("^ccos/lib/[%w_%-]+%.lua$"))and fs.combine(path,"")==path
 end
+function M.apply(files,options)
+  options=options or {};local changes,seen={},{}
+  local needed=8192
+  for _,file in ipairs(files)do
+    local path,body=file[1],file[2]
+    assert(M.allowed(path),"Update attempted an unowned path: "..tostring(path))
+    assert(not seen[path],"Duplicate update path");seen[path]=true
+    assert(type(body)=="string"and #body<=524288,"Invalid source file")
+    assert(load(body,"@"..path,"t",{}),"Invalid Lua in "..path)
+    local dest="/"..path
+    assert(not fs.isDir(dest),"A directory conflicts with "..dest)
+    local h=fs.open(dest,"r");local old=h and h.readAll()or nil;if h then h.close()end
+    if old~=body then changes[#changes+1]=file;needed=needed+#body end
+  end
+  local free=fs.getFreeSpace("/")
+  assert(type(free)~="number"or free>=needed,("Need %d KB free; available %d KB"):format(math.ceil(needed/1024),type(free)=="number"and math.floor(free/1024)or 0))
+  local stage="/.ccos-stage-"..os.epoch("utc");local previous=stage.."-previous"
+  assert(not fs.exists(stage)and not fs.exists(previous),"Another installation is in progress")
+  local installed,moved={},{}
+  local ok,err=pcall(function()
+    for i,file in ipairs(changes)do
+      local path=stage.."/"..file[1];fs.makeDir(fs.getDir(path))
+      local h=assert(fs.open(path,"w"));h.write(file[2]);h.close()
+      h=assert(fs.open(path,"r"));local actual=h.readAll();h.close();assert(actual==file[2],"Verification failed: "..file[1])
+      if options.progress then options.progress(i,#changes,file[1])end
+    end
+    -- Commit without yielding. Runtime data, credentials and startup are untouched.
+    for _,file in ipairs(changes)do
+      local rel,dest=file[1],"/"..file[1]
+      if fs.exists(dest)then fs.makeDir(fs.getDir(previous.."/"..rel));fs.move(dest,previous.."/"..rel);moved[#moved+1]=rel end
+      fs.makeDir(fs.getDir(dest));fs.move(stage.."/"..rel,dest);installed[#installed+1]=rel
+    end
+  end)
+  if not ok then
+    for i=#installed,1,-1 do local p="/"..installed[i];if fs.exists(p)then fs.delete(p)end end
+    for _,rel in ipairs(moved)do fs.move(previous.."/"..rel,"/"..rel)end
+  end
+  if fs.exists(stage)then fs.delete(stage)end;if fs.exists(previous)then fs.delete(previous)end
+  if not ok then error("Installation rolled back: "..tostring(err),0)end
+  return #changes
+end
+return M
+]=],"@ccos-installer","t",_ENV))()
 term.setBackgroundColor(colors.black);term.setTextColor(colors.white);term.clear();term.setCursorPos(1,1)
-print("ccOS "..VERSION.." installer")
-if not term.isColor() then printError("ccOS needs an advanced computer.");return end
-local needed,CHANGES=8192,{}
-for _,f in ipairs(FILES)do
-  local path="/"..f[1]
-  if fs.exists(path)and fs.isDir(path)then printError("A directory conflicts with "..path);return end
-  local h=fs.open(path,"r");local old=h and h.readAll()or nil;if h then h.close()end
-  if old~=f[2]then CHANGES[#CHANGES+1]=f;needed=needed+#f[2]end
+print("ccOS "..VERSION..(updateMode and " updater"or " installer"))
+if not term.isColor()then printError("ccOS needs an advanced computer.");return false end
+if updateMode and not fs.exists("/ccos/config.cfg")then printError("Run setup first to configure ccOS.");return false end
+local ok,why=pcall(installer.apply,FILES,{progress=function(i,n,path)print(("Checking %d/%d: %s"):format(i,n,path))end})
+if not ok then printError(why);return false end
+if updateMode then
+  print("ccOS updated. Your settings and files were kept. Restarting...")
+  if ccos and ccos.reboot then ccos.reboot()else os.reboot()end
+  return true
 end
-local free=fs.getFreeSpace("/")
-if type(free)=="number"and free<needed then printError(("Need %d KB free; available %d KB."):format(math.ceil(needed/1024),math.floor(free/1024)));return end
-local stage="/.ccos-stage-"..os.epoch("utc")
-local previous=stage.."-previous"
-assert(not fs.exists(stage)and not fs.exists(previous),"A setup is already in progress")
-local installed,moved={},{}
-local ok,err=pcall(function()
-  for i,f in ipairs(CHANGES)do
-    writeFile(stage.."/"..f[1],f[2])
-    print(("Checking %d/%d: %s"):format(i,#CHANGES,f[1]))
-  end
-  -- Move only bundled code, leaving all existing data/configuration intact.
-  for _,f in ipairs(CHANGES)do
-    local dest="/"..f[1]
-    if fs.exists(dest)then fs.makeDir(fs.getDir(previous.."/"..f[1]));fs.move(dest,previous.."/"..f[1]);moved[#moved+1]=f[1]end
-    fs.makeDir(fs.getDir(dest));fs.move(stage.."/"..f[1],dest);installed[#installed+1]=f[1]
-  end
-end)
-if not ok then
-  for i=#installed,1,-1 do local p="/"..installed[i];if fs.exists(p)then fs.delete(p)end end
-  for _,rel in ipairs(moved)do fs.move(previous.."/"..rel,"/"..rel)end
-  if fs.exists(stage)then fs.delete(stage)end
-  if fs.exists(previous)then fs.delete(previous)end
-  printError("Installation rolled back: "..tostring(err));return
-end
-if fs.exists(stage)then fs.delete(stage)end
-if fs.exists(previous)then fs.delete(previous)end
--- Import legacy preferences without deleting the old installation or user files.
 if not fs.exists("/ccos/config.cfg")and fs.exists("/aurora/config.cfg")then fs.copy("/aurora/config.cfg","/ccos/config.cfg")end
 if not fs.exists("/ccos/data")and fs.exists("/aurora/data")then fs.copy("/aurora/data","/ccos/data")end
-print("All "..#FILES.." files verified. Opening setup...")
+print("All files verified. Opening setup...")
 shell.run("/ccos/setup.lua")

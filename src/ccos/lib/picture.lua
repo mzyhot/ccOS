@@ -1,7 +1,7 @@
 -- Hallmark · genre: atmospheric · structure: compact tool workbench · palette: ccOS tokens
 -- Pre-emit critique: Philosophy 5, Hierarchy 4, Execution 4, Specificity 5, Restraint 5, Variety 4
 -- Touch-only presentation. Shares the kernel's audio, files and hardware;
--- never exposes a shell, editable field, file execution or keyboard prompt.
+-- routes prompt entry through the dedicated computer input console.
 return function(K, gfx, T)
   local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
   local P = {}
@@ -52,10 +52,10 @@ return function(K, gfx, T)
       for _, a in ipairs(K.APPS) do if a.id == view then found = a end end
       local builtin = ({home=true,music=true,files=true,reader=true,devices=true,settings=true,notifications=true,power=true})[view]
       if found and not K.canTouchApp(found,s) and not builtin then
-        K.launch(view, {}, {screen=s}); v.message="Opened on computer: "..found.name; K.markDirty(s); return
+        K.launch(view, {}, {screen=s}); v.message="Full Sync needed: "..found.name; K.markDirty(s); return
       end
       v.view, v.page, v.message, v.appPid = view, 1, nil, nil
-      K.markDirty(s)
+      K.markAll()
     end
     local function run(fn, title)
       K.spawn(function()
@@ -283,6 +283,10 @@ return function(K, gfx, T)
     elseif v.view == "settings" then
       local function toggle(key) K.api.config(key, not K.cfg[key]) end
       local items = {
+        {label="Full Sync with desktop",fn=function()K.setFullSync(true)end},
+        {label="Auto update checks: "..(K.cfg.autoUpdates and "On"or "Off"),fn=function()toggle("autoUpdates")end},
+        {label="Check for updates",fn=function()K.updates.check(true)end},
+        {label=K.updates and K.updates.status or "Updates",fn=function()if K.updates.available then K.updates.prompt()end end},
         { label = "Theme: " .. K.cfg.theme, detail = "Tap for next theme", fn = function()
           local i = 1; for j, id in ipairs(K.THEME_ORDER) do if id == K.cfg.theme then i = j end end
           K.api.config("theme", K.THEME_ORDER[i % #K.THEME_ORDER + 1])

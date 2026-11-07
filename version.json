@@ -1,0 +1,185 @@
+{
+  "version": "2.1",
+  "files": [
+    {
+      "path": "ccos/apps/about.lua",
+      "source": "src/ccos/apps/about.lua",
+      "bytes": 1641,
+      "sha256": "f4eb366f9a1626bdc75ae67e1855aa136b1989ecd53a54bf0e4b5e284cd406fa"
+    },
+    {
+      "path": "ccos/apps/agent.lua",
+      "source": "src/ccos/apps/agent.lua",
+      "bytes": 6864,
+      "sha256": "bb001c146b8c4da085b68f7d4e608f270efc52324bee50e31da6860be1ff8cb1"
+    },
+    {
+      "path": "ccos/apps/calc.lua",
+      "source": "src/ccos/apps/calc.lua",
+      "bytes": 3638,
+      "sha256": "9dc30d8f62bbac5dbfeed14c6e3f638b6acb21d8810988291911de69c33443db"
+    },
+    {
+      "path": "ccos/apps/clock.lua",
+      "source": "src/ccos/apps/clock.lua",
+      "bytes": 4342,
+      "sha256": "55b654934e1bf2740bc3fa8f1d18edb1396321d2ba0592ce45222c6d05ec3007"
+    },
+    {
+      "path": "ccos/apps/files.lua",
+      "source": "src/ccos/apps/files.lua",
+      "bytes": 13392,
+      "sha256": "f94b8facc14a6a2b2205df928b03af911920b9fbebe7dc64d8949281973e3fe7"
+    },
+    {
+      "path": "ccos/apps/music.lua",
+      "source": "src/ccos/apps/music.lua",
+      "bytes": 8454,
+      "sha256": "61e2d944ba571f48a8a29935fa46ad5352cd026b4441a9c91110a24c264b490f"
+    },
+    {
+      "path": "ccos/apps/notifications.lua",
+      "source": "src/ccos/apps/notifications.lua",
+      "bytes": 546,
+      "sha256": "5d9c88a37870e476351be2f77a259391b405d5200cc45b5c0e8464294a77885a"
+    },
+    {
+      "path": "ccos/apps/piano.lua",
+      "source": "src/ccos/apps/piano.lua",
+      "bytes": 5708,
+      "sha256": "646bd6b5472fea0831cb24f04d1493b792086f5d04012fea8f316410740202ab"
+    },
+    {
+      "path": "ccos/apps/print.lua",
+      "source": "src/ccos/apps/print.lua",
+      "bytes": 4135,
+      "sha256": "ac0aa5d367cb8b03db8130612bcdb70e845514728b4bc5b7574cd63c8bda767e"
+    },
+    {
+      "path": "ccos/apps/settings.lua",
+      "source": "src/ccos/apps/settings.lua",
+      "bytes": 11987,
+      "sha256": "12cd1cf0e0c82a60d923c0d52c3c2c84b580d1714e6e465385f52fc6d43bceb6"
+    },
+    {
+      "path": "ccos/apps/tasks.lua",
+      "source": "src/ccos/apps/tasks.lua",
+      "bytes": 4576,
+      "sha256": "663d45bc6aa2d9d59d2b7901d9c185fa691e054ba043bf2a759008ab23614c5a"
+    },
+    {
+      "path": "ccos/apps/tools.lua",
+      "source": "src/ccos/apps/tools.lua",
+      "bytes": 61,
+      "sha256": "cd4be21b3b9561d4bba92d74776d349b65d70cc0e176f8c519322f5f66aa01a5"
+    },
+    {
+      "path": "ccos/apps/viewer.lua",
+      "source": "src/ccos/apps/viewer.lua",
+      "bytes": 7144,
+      "sha256": "409e4c03ce79cc9b7f819ae016e0c0ef6186f31957e920bdb0502fe642050c13"
+    },
+    {
+      "path": "ccos/kernel.lua",
+      "source": "src/ccos/kernel.lua",
+      "bytes": 111559,
+      "sha256": "dd9b410b7e6a43d05a8a9bea7796f0cacfd204964373d63969d859a4d9fdcb7f"
+    },
+    {
+      "path": "ccos/lib/agent.lua",
+      "source": "src/ccos/lib/agent.lua",
+      "bytes": 29429,
+      "sha256": "f29d958ef25bd27b0c6284a5efb366f8fc6f0b3f17ab8c3c6d73c096d52bd78d"
+    },
+    {
+      "path": "ccos/lib/audio.lua",
+      "source": "src/ccos/lib/audio.lua",
+      "bytes": 20764,
+      "sha256": "a4d2ec275a938b7bcdb41177a53752acb459c218e58147cbcb04bbe110e4f41c"
+    },
+    {
+      "path": "ccos/lib/catalog.lua",
+      "source": "src/ccos/lib/catalog.lua",
+      "bytes": 3880,
+      "sha256": "e8b521c0945ccec40c49bccfdfa670626e7e212d922c7f11408d66dbe6baea6f"
+    },
+    {
+      "path": "ccos/lib/gfx.lua",
+      "source": "src/ccos/lib/gfx.lua",
+      "bytes": 15863,
+      "sha256": "a3d56aed43e879763071d4d789cd612fc0027c48ba80dc83ede09d61ef887323"
+    },
+    {
+      "path": "ccos/lib/input.lua",
+      "source": "src/ccos/lib/input.lua",
+      "bytes": 3930,
+      "sha256": "7819b52ed378af647c02e215642cfd02d371685fe1714cc37e218f737f68c985"
+    },
+    {
+      "path": "ccos/lib/install.lua",
+      "source": "src/ccos/lib/install.lua",
+      "bytes": 2656,
+      "sha256": "e57b1e1a1a640bd5c5207de71020e122bbeb11c8355fa340a2e4c4f6c8b152e2"
+    },
+    {
+      "path": "ccos/lib/json.lua",
+      "source": "src/ccos/lib/json.lua",
+      "bytes": 4443,
+      "sha256": "8c366d25535ac9639bf8535974447d71bbfd3f9033e01d164cc608f1ab21b1c9"
+    },
+    {
+      "path": "ccos/lib/picture.lua",
+      "source": "src/ccos/lib/picture.lua",
+      "bytes": 18521,
+      "sha256": "48d7b41155d820c632bc6f7d9acc23fd828fd1f1015cbbf63b7284ba0ca70221"
+    },
+    {
+      "path": "ccos/lib/sha256.lua",
+      "source": "src/ccos/lib/sha256.lua",
+      "bytes": 2586,
+      "sha256": "38816124ba3b7f9acb39ec47f8183bb78960f7347a60e043aecfb215ee1d4d70"
+    },
+    {
+      "path": "ccos/lib/suite.lua",
+      "source": "src/ccos/lib/suite.lua",
+      "bytes": 34054,
+      "sha256": "79f5bfdf0f27e4608c31b3cdf1b0bf31ff5ea22c342364735b3543822d3f4df6"
+    },
+    {
+      "path": "ccos/lib/time.lua",
+      "source": "src/ccos/lib/time.lua",
+      "bytes": 3270,
+      "sha256": "8a4fdf11b2e8d943692904c0202d6811e9033669c9ee39b80ee8296e45fd9ee9"
+    },
+    {
+      "path": "ccos/lib/ui.lua",
+      "source": "src/ccos/lib/ui.lua",
+      "bytes": 10256,
+      "sha256": "b453af26d92eef725a8960b2fd2adc99e5be68508f9eb3e8571a952a794c4389"
+    },
+    {
+      "path": "ccos/lib/updater.lua",
+      "source": "src/ccos/lib/updater.lua",
+      "bytes": 6416,
+      "sha256": "6ae251f0596d64fbd4ed9d5dfae954c87bdf298e6dbebffe55dea981e98e7c66"
+    },
+    {
+      "path": "ccos/setup.lua",
+      "source": "src/ccos/setup.lua",
+      "bytes": 4723,
+      "sha256": "77083046f9bbd2415c1807a995ba280bd416165ded896378b0f661ad35d4400d"
+    },
+    {
+      "path": "ccos/update.lua",
+      "source": "src/ccos/update.lua",
+      "bytes": 987,
+      "sha256": "230a943a5636fad8eb98eea9dc6beccde05e9a3ff7bd1b3137f14711a130f29d"
+    },
+    {
+      "path": "update.lua",
+      "source": "update.lua",
+      "bytes": 987,
+      "sha256": "230a943a5636fad8eb98eea9dc6beccde05e9a3ff7bd1b3137f14711a130f29d"
+    }
+  ]
+}

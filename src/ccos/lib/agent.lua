@@ -3,6 +3,7 @@
 return function(K, J)
   local A = { busy=false, status="Ready", messages={}, activity={}, conversation={}, pending=nil, waiting=false }
   local ROOT, ENDPOINT = K.root, "https://openrouter.ai/api/v1/chat/completions"
+  local MODELS="https://openrouter.ai/api/v1/models"
   local keyPath = ROOT .. "/private/openrouter.cfg"
   local tools, byName, serial = {}, {}, 0
   local floor,min,max = math.floor,math.min,math.max
@@ -37,7 +38,7 @@ return function(K, J)
   end
   function A.configured() return #key()>0 end
   function A.setKey(value)
-    assert(not A.busy and not A.inflight,"Stop the current task and wait for its request to close before changing the API key")
+    assert(not A.busy and not A.inflight and not A.modelBusy,"Stop the current task and wait for its request to close before changing the API key")
     assert(type(value)=="string" and #value<=1024,"Invalid API key")
     fs.makeDir(ROOT.."/private")
     local h=assert(fs.open(keyPath,"w"),"Cannot save key"); h.write((value:gsub("%s+",""))); h.close(); changed()
@@ -238,8 +239,68 @@ return function(K, J)
     if not ok then error(clean(result),0)end
     return result
   end
+  local function failure(reason,handle,savedRaw,savedCode)
+    local code,raw=savedCode or 0,savedRaw or ""
+    if handle then
+      if handle.getResponseCode then local ok,n=pcall(handle.getResponseCode);if ok then code=n end end
+      if handle.read then local ok,body=pcall(handle.read,32768);if ok then raw=body or ""end end
+      pcall(handle.close)
+    end
+    local message=tostring(reason or "Request failed")
+    local ok,data=pcall(J.decode,raw)
+    if ok and type(data)=="table"and data.error then
+      local e=data.error
+      if type(e)=="table"then
+        code=tonumber(e.code)or code;message=tostring(e.message or message)
+        if type(e.metadata)=="table"and e.metadata.raw then message=message.." | Provider: "..tostring(e.metadata.raw):sub(1,1500)end
+      else message=tostring(e)end
+    elseif raw~=""then message=message.." | "..raw:sub(1,1200)end
+    local hints={ [401]="Check your saved API key.",[402]="Check OpenRouter credits.",[404]="This model/provider route is unavailable. Refresh Models or check your OpenRouter provider/privacy settings.",[429]="Rate limit reached; retry later.",[503]="The provider is unavailable; retry later or choose another model." }
+    A.lastError={code=code,message=clean(message),model=K.cfg.agentModel}
+    return clean("OpenRouter HTTP "..code..": "..message..(hints[code]and(" "..hints[code])or ""))
+  end
+  function A.refreshModels()
+    if A.modelBusy then return false,"Model refresh already running"end
+    A.modelBusy=true;A.modelStatus="Loading OpenRouter models";changed()
+    K.spawn(function()
+      local ok,err=pcall(function()
+        assert(http and http.request,"HTTP is disabled")
+        local accepted,why=http.request({url=MODELS,method="GET",headers={Accept="application/json"},timeout=30})
+        assert(accepted~=false,why or "Model request rejected")
+        local timer=os.startTimer(35)
+        while true do
+          local e,url,h,failed=os.pullEvent()
+          if url==MODELS and e=="http_success"then
+            os.cancelTimer(timer);local readOK,raw=pcall(h.read,2097153);pcall(h.close);assert(readOK,raw);assert(raw and #raw<=2097152,"Model catalog too large")
+            local catalog=J.decode(raw);assert(type(catalog.data)=="table","Invalid model catalog")
+            local models={}
+            for _,m in ipairs(catalog.data)do
+              local supports=false;for _,param in ipairs(type(m.supported_parameters)=="table"and m.supported_parameters or {})do if param=="tools"then supports=true end end
+              if supports and type(m.id)=="string"then
+                local price=type(m.pricing)=="table"and m.pricing or {}
+                models[#models+1]={id=m.id,name=m.name or m.id,free=tonumber(price.prompt)==0 and tonumber(price.completion)==0}
+              end
+            end
+            table.sort(models,function(a,b)if a.free~=b.free then return a.free end;return a.id<b.id end)
+            A.models=models;A.modelStatus=#models.." tool-capable models";return
+          elseif url==MODELS and e=="http_failure"then os.cancelTimer(timer);error(failure(h,failed),0)
+          elseif e=="timer"and url==timer then error("Model catalog timed out",0)end
+        end
+      end)
+      A.modelBusy=false;if not ok then A.modelStatus=clean(err)end;changed()
+    end,{title="OpenRouter models",service=true})
+    return true
+  end
+  function A.selectModel(id)
+    if type(id)~="string"or #id>160 or not id:match("^[%w%._:/~%-]+$")then return false,"Invalid model id"end
+    if A.models and id~="openrouter/auto"then
+      local found=false;for _,m in ipairs(A.models)do if m.id==id then found=true end end
+      if not found then return false,"Model is not in the tool-capable catalog. Refresh Models and choose an available id."end
+    end
+    K.api.config("agentModel",id);A.lastError=nil;changed();return true
+  end
   local function request(messages)
-    local body=clean(J.encode({model=K.cfg.agentModel,messages=J.array(messages),tools=J.array(tools),tool_choice="auto",parallel_tool_calls=false,
+    local body=clean(J.encode({model=K.cfg.agentModel,messages=J.array(messages),tools=J.array(tools),tool_choice="auto",
       provider={require_parameters=true},max_tokens=K.cfg.agentMaxTokens,stream=false}))
     assert(#body<=196608,"Conversation is too large; start a new chat")
     assert(http and http.request,"Enable HTTP in CC: Tweaked to use OpenRouter")
@@ -253,12 +314,12 @@ return function(K, J)
         A.waiting,A.inflight=false,false;os.cancelTimer(timer)
         local code=handle.getResponseCode and handle.getResponseCode()or 200
         local raw=handle.read(262144)or "";handle.close()
-        assert(code>=200 and code<300,"OpenRouter HTTP "..code)
-        local data=J.decode(raw);assert(not data.error,clean(data.error and(data.error.message or J.encode(data.error))))
+        if code<200 or code>=300 then error(failure("Request failed",nil,raw,code),0)end
+        local data=J.decode(raw);if data.error then error(failure("Request failed",nil,raw,code),0)end
         return data
       elseif e=="http_failure"and url==ENDPOINT then
-        A.waiting,A.inflight=false,false;os.cancelTimer(timer);if failed then failed.close()end
-        error(clean("OpenRouter request failed: "..tostring(handle)),0)
+        A.waiting,A.inflight=false,false;os.cancelTimer(timer)
+        error(failure(handle,failed),0)
       elseif e=="timer"and url==timer then A.waiting=false;error("OpenRouter timed out; retry the task",0)
       elseif e=="ccos_agent_cancel"or A.cancelled then A.waiting=false;os.cancelTimer(timer);error("Cancelled",0)end
     end
@@ -269,6 +330,7 @@ return function(K, J)
     if A.inflight then return false,"The previous HTTP request is still closing; retry shortly"end
     if not A.configured()then return false,"Add your OpenRouter API key in Agent settings"end
     if type(prompt)~="string"or prompt:match("^%s*$")or #prompt>12000 then return false,"Enter a task (up to 12,000 characters)"end
+    if A.models and K.cfg.agentModel~="openrouter/auto"then local valid,why=A.selectModel(K.cfg.agentModel);if not valid then return false,why end end
     A.busy,A.cancelled,A.status=true,false,"Thinking";say("user",prompt)
     K.spawn(function()
       -- Keep a bounded completed turn history; interrupted tool sequences are never reused.
@@ -318,6 +380,7 @@ return function(K, J)
   end
   -- Close late responses from cancelled/timed-out requests without leaking handles.
   function A.consume(ev)
+    if not A.modelBusy and ev[2]==MODELS and(ev[1]=="http_success"or ev[1]=="http_failure")then local h=ev[1]=="http_success"and ev[3]or ev[4];if h and h.close then pcall(h.close)end;return true end
     if not A.waiting and ev[2]==ENDPOINT and (ev[1]=="http_success"or ev[1]=="http_failure")then
       local h=ev[1]=="http_success"and ev[3]or ev[4];if h and h.close then pcall(h.close)end;A.inflight=false;return true
     end

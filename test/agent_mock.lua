@@ -5,6 +5,17 @@ return function(ctx)
   local function tool(id,name,args,J)return{id=id,type="function",["function"]={name=name,arguments=J.encode(args)}}end
   local http={}
   function http.request(options)
+    if options.url=="https://openrouter.ai/api/v1/models"then
+      local J=ccos.json
+      local raw=J.encode({data=J.array({
+        {id="nvidia/nemotron-3.5-lightning:free",supported_parameters=J.array({"tools","max_tokens"}),pricing={prompt="0",completion="0"}},
+        {id="example/no-tools",supported_parameters=J.array({"temperature"}),pricing={prompt="0",completion="0"}},
+        {id="example/paid-tools",supported_parameters=J.array({"tools"}),pricing={prompt="0.001",completion="0.001"}}
+      })})
+      ctx.after(2,function()ctx.push("http_success",options.url,{read=function(n)return raw:sub(1,n)end,close=function()closed=closed+1 end})end)
+      return true
+    end
+    if options.url~="https://openrouter.ai/api/v1/chat/completions"then return false,"not enabled in fixture"end
     count=count+1
     local J=ccos.json
     local payload=J.decode(options.body)
@@ -12,7 +23,7 @@ return function(ctx)
     assert(options.headers.Authorization=="Bearer sk-or-test-key","Missing authorization")
     assert(not options.body:find("sk-or-test-key",1,true),"Secret leaked into messages")
     assert(payload.stream==false and #payload.tools>=25,"Missing OS tool definitions")
-    assert(payload.provider.require_parameters==true,"Tool-compatible routing required")
+    assert(payload.provider.require_parameters==true and payload.parallel_tool_calls==nil,"Unsupported optional tool parameter was sent")
     local calls
     if ctx.scenario=="agent-timeout"then return true
     elseif ctx.scenario=="agent-cancel-http"then
@@ -20,6 +31,9 @@ return function(ctx)
     elseif ctx.scenario=="agent-deny"then
       if count==1 then calls={tool("denied","write_file",{path="/notes/denied.txt",content="Should not be written"},J)}
       else local last=payload.messages[#payload.messages];assert(last.role=="tool"and J.decode(last.content).ok==false,"Denied call must produce a tool error")end
+    elseif ctx.scenario=="agent-route-error"then
+      local raw=J.encode({error={code=404,message="No endpoints found that support the requested parameters",metadata={raw="provider route rejected sk-or-test-key"}}})
+      ctx.after(2,function()ctx.push("http_failure",options.url,"Not Found",{read=function(n)return raw:sub(1,n)end,getResponseCode=function()return 404 end,close=function()closed=closed+1 end})end);return true
     elseif ctx.scenario=="agent-error"then
       ctx.after(2,function()ctx.push("http_failure",options.url,"HTTP 401 Unauthorized",{close=function()closed=closed+1 end})end);return true
     elseif ctx.scenario=="agent-malformed"then

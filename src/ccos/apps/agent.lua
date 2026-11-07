@@ -16,7 +16,7 @@ function app:send(text)
 end
 function app:draw(g)
   local touch=ui.touch()
-  local y=act(g,1,{{"Chat",function()self.tab=1 end,self.tab==1},{"Activity",function()self.tab=2 end,self.tab==2},{"Settings",function()self.tab=3 end,self.tab==3},{A.busy and "Stop task"or "New chat",function()if A.busy then A.cancel()else A.clear()end end}})
+  local y=act(g,1,{{"Chat",function()self.tab=1 end,self.tab==1},{g.h<12 and "Log"or "Activity",function()self.tab=2 end,self.tab==2},{g.h<12 and "Setup"or "Settings",function()self.tab=3 end,self.tab==3},{A.busy and "Stop"or "New chat",function()if A.busy then A.cancel()else A.clear()end end}})
   g:text(2,y,ui.trunc(A.status.."  |  "..ccos.config("agentModel"),g.w-2),A.busy and T.accent or T.muted);y=y+2
   if A.pending then
     g:fill(2,y,g.w-2,1,T.raised);g:text(3,y,"Review: "..ui.trunc(A.pending.name,g.w-12),T.warn,T.raised)
@@ -29,16 +29,20 @@ function app:draw(g)
   if self.tab==3 then
     local lines={"OpenRouter: "..(A.configured()and "key saved"or "not configured"),"Review changes: "..(ccos.config("agentConfirm")and "On"or "Off (autonomous)"),"Step limit: "..ccos.config("agentMaxSteps"),"Output tokens / request: "..ccos.config("agentMaxTokens")}
     for _,line in ipairs(lines)do if y<g.h-2 then g:text(2,y,ui.trunc(line,g.w-2),T.text);y=y+1 end end
-    if not touch then
-      y=act(g,y+1,{{"API key",A.configure},{"Model",function()
+    do
+      y=act(g,y+1,{{"API key",A.configure},{"Models",function()self.tab=4;A.refreshModels()end},{"Model ID",function()
         local model=ccos.prompt("OpenRouter model","A model id with tool calling",ccos.config("agentModel"))
-        if model and model:match("^[%w%._:/%-]+$")and #model<=160 then ccos.config("agentModel",model)end
+        if model then local ok,why=A.selectModel(model);if not ok then self.error=why end end
       end},{"Review "..(ccos.config("agentConfirm")and "On"or "Off"),function()ccos.config("agentConfirm",not ccos.config("agentConfirm"))end}})
       y=act(g,y,{{"Steps -",function()ccos.config("agentMaxSteps",max(1,ccos.config("agentMaxSteps")-1))end},{"Steps +",function()ccos.config("agentMaxSteps",min(40,ccos.config("agentMaxSteps")+1))end},{"Remove key",function()if ccos.confirm("Remove API key?","The AI agent will be disconnected.","Remove")then A.setKey("")end end}})
       y=act(g,y,{{"Tokens -",function()ccos.config("agentMaxTokens",max(256,ccos.config("agentMaxTokens")-256))end},{"Tokens +",function()ccos.config("agentMaxTokens",min(8192,ccos.config("agentMaxTokens")+256))end}})
-    else
-      for _,line in ipairs(ui.wrap("Configure your API key and model on the computer. Pending actions can be reviewed on either screen.",g.w-4))do if y<g.h then g:text(2,y,line,T.muted);y=y+1 end end
+
     end
+  elseif self.tab==4 then
+    y=act(g,y,{{"Refresh",A.refreshModels},{self.showPaid and "Show free only"or "Include paid",function()self.showPaid=not self.showPaid end}})
+    g:text(2,y,ui.trunc(A.modelStatus or "Refresh to load models",g.w-2),T.muted);y=y+2
+    local models={};for _,m in ipairs(A.models or {})do if self.showPaid or m.free then models[#models+1]=m end end
+    g:list(self.scroll,2,y,g.w-2,max(1,g.h-y),models,function(m,_,x,yy,w)g:text(x,yy,ui.trunc((m.free and "Free: "or "Paid: ")..m.id,w),T.text)end,function(m)local ok,why=A.selectModel(m.id);if ok then self.tab=3 else self.error=why end end)
   elseif self.tab==2 then
     local lines={}
     for _,e in ipairs(A.activity)do
@@ -49,8 +53,8 @@ function app:draw(g)
     g:list(self.scroll,2,y,g.w-2,max(1,g.h-y),lines,function(line,_,x,yy,w)g:text(x,yy,ui.trunc(line,w),T.text)end)
   else
     local composerRows=touch and 0 or 3
-    if touch and not A.busy then
-      y=act(g,y,{{"Inspect system",function()self:send("Inspect ccOS, attached devices, screens and current settings. Summarize what is available. Do not change anything.")end},{"Find errors",function()self:send("Inspect the OS and agent logs for errors, then explain likely fixes. Do not change files yet.")end},{"Summarize files",function()self:send("List the root folders and notes. Summarize the files available without reading private credentials.")end}})
+    if touch and not A.busy and g.h>=12 then
+      y=act(g,y,{{"Write task",function()local text=ccos.prompt("Message AI Agent","Type on the computer","");if text and text~=""then self:send(text)end end},{"Inspect system",function()self:send("Inspect ccOS, attached devices, screens and current settings. Summarize what is available. Do not change anything.")end},{"Find errors",function()self:send("Inspect the OS and agent logs for errors, then explain likely fixes. Do not change files yet.")end},{"Summarize files",function()self:send("List the root folders and notes. Summarize the files available without reading private credentials.")end}})
     end
     local lines={}
     for _,m in ipairs(A.messages)do
@@ -58,7 +62,7 @@ function app:draw(g)
       for _,line in ipairs(ui.wrap(m.text,g.w-5))do lines[#lines+1]=" "..line end
       lines[#lines+1]=""
     end
-    if #lines==0 then lines={"ccOS Agent", "", "Read, edit and create files; run programs;", "inspect output; control settings, screens,", "audio, printers and attached peripherals.", "", A.configured()and(touch and "Choose a task above. Review actions here."or "Type a task below and press Enter.")or "Add your OpenRouter key in Settings."}end
+    if #lines==0 then lines={"ccOS Agent", "", "Read, edit and create files; run programs;", "inspect output; control settings, screens,", "audio, printers and attached peripherals.", "", A.configured()and(touch and "Type a message on the computer, or choose a task."or "Type a task below and press Enter.")or "Add your OpenRouter key in Settings."}end
     local available=max(1,g.h-y-composerRows)
     if self.seen~=#A.messages then self.scroll.scroll=max(0,#lines-available);self.seen=#A.messages end
     g:list(self.scroll,2,y,g.w-2,available,lines,function(line,_,x,yy,w)g:text(x,yy,ui.trunc(line,w),T.text)end)

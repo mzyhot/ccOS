@@ -60,6 +60,8 @@ function app:rows()
     toggle("Play system sounds", "sounds")
     toggle("Click on touch", "touchSounds")
   elseif s == "Screens" then
+    head("Monitor mode")
+    row("Top monitor", cfg("fullSync")and "Full Sync"or "Big Picture",{{"Full Sync",function()ccos.setFullSync(true)end},{"Big Picture",function()ccos.setFullSync(false)end}})
     head("Displays")
     for _, sc in ipairs(ccos.screens()) do
       if sc.kind == "term" then
@@ -80,7 +82,7 @@ function app:rows()
         })
       end
     end
-    rows[#rows + 1] = { note = "Picture is the compact touch tools interface. No keyboard needed." }
+    rows[#rows + 1] = { note = "Big Picture uses the computer for prompt input." }
     rows[#rows + 1] = { note = "Mirror shows the computer's screen, and taps on it act there." }
     rows[#rows + 1] = { note = "Desktop is a widescreen desktop of its own. Panel shows the time, music and devices." }
   elseif s == "Clock & panel" then
@@ -123,12 +125,16 @@ function app:rows()
     row("API key", ccos.agent.configured() and "Saved" or "Not configured", {{"Configure", ccos.agent.configure}})
     row("Model",cfg("agentModel"),{{"Change",function()
       local model=ccos.prompt("OpenRouter model","Model id with tool support",cfg("agentModel"))
-      if model and model:match("^[%w%._:/%-]+$")and #model<=160 then set("agentModel",model)end
+      if model then local ok,why=ccos.agent.selectModel(model);if not ok then ccos.alert("Model unavailable",why)end end
     end}})
     toggle("Review agent changes","agentConfirm")
     row("Step limit",tostring(cfg("agentMaxSteps")),{{"-",function()set("agentMaxSteps",math.max(1,cfg("agentMaxSteps")-1))end},{"+",function()set("agentMaxSteps",math.min(40,cfg("agentMaxSteps")+1))end}})
     row("Agent", "", {{"Open",function()ccos.open("agent")end}})
   else
+    head("Updates")
+    toggle("Automatic update checks","autoUpdates")
+    row("ccOS "..ccos.version,ccos.updates.status,{{"Check now",function()ccos.updates.check(true)end}})
+    if ccos.updates.available then row("New version",ccos.updates.available.version,{{"Update",ccos.updates.prompt}})end
     head("You")
     row("Name", cfg("user"), { { "Change", function()
       local name = ccos.prompt("Your name", "What should ccOS call you?", cfg("user"))
@@ -231,4 +237,6 @@ function app:onKey(k)
   self.scroll.scroll = 0
 end
 
+function app:onEvent(ev)return ev[1]=="ccos_updates"end
 ui.run(app)
+

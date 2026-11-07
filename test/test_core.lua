@@ -43,4 +43,7 @@ cfg.timezone="fixed";cfg.utcOffset=345
 equal(clock.date(cfg,"%Y-%m-%d %H:%M",epoch(2026,11,6,23)),"2026-11-07 04:45","offset/date rollover")
 local seen={};for _,app in ipairs(catalog.apps())do assert(not seen[app.id],"Duplicate tool");seen[app.id]=true;assert(app.category and app.tool and app.path=="tools")end
 assert(#catalog.apps()>=40,"Expected at least forty new tools")
+local sha=assert(loadfile((arg[1]or "../src").."/ccos/lib/sha256.lua"))()
+equal(sha.digest(""),"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","SHA256 empty")
+equal(sha.digest("abc"),"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","SHA256 abc")
 print(checks.." core assertions passed; "..#catalog.apps().." implemented utilities in catalog")

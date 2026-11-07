@@ -1,5 +1,5 @@
 --[[
-  ccOS                                                        v2.0
+  ccOS                                                        v2.1
 
   A windowed desktop for CC: Tweaked across every screen it can find:
   the computer's desktop and advanced monitors as touch-only media hubs,
@@ -11,7 +11,7 @@
   apps add the `ccos` API on top.
 ]]
 
-local VERSION = "2.0"
+local VERSION = "2.1"
 local ROOT = "/ccos"
 local CONFIG_PATH = ROOT .. "/config.cfg"
 local nativeTerm = term.current()
@@ -83,6 +83,8 @@ local HEX = gfx.HEX
 local clock = loadModule(ROOT .. "/lib/time.lua")
 local catalog = loadModule(ROOT .. "/lib/catalog.lua")
 local json = loadModule(ROOT .. "/lib/json.lua")
+local sha256=loadModule(ROOT.."/lib/sha256.lua")
+local installer=loadModule(ROOT.."/lib/install.lua")
 K.clock, K.catalog, K.json = clock, catalog, json
 
 ------------------------------------------------------------------------
@@ -95,6 +97,7 @@ local DEFAULTS = {
   sounds = true, touchSounds = true, uiVolume = 0.6, musicVolume = 0.8, balance = 0, swapSpeakers = false,
   screens = {}, panelRotate = 12, idle = 300, shadows = true,
   desktop = { "files", "terminal", "music", "piano", "clock", "calc", "print", "tasks", "settings", "agent", "notes", "checklist" },
+  fullSync=false, autoUpdates=true,
   monitorFavorites={"files","music","clock","calc","settings","agent","notes","checklist","worldclock","units","redstone","peripherals"},
   recent = {}, screenLayout = 0, setupComplete = false, agentModel = "openrouter/auto", agentConfirm = true, agentMaxSteps = 16, agentMaxTokens = 2048,
 }
@@ -228,7 +231,7 @@ for _,a in ipairs(APPS)do
 end
 K.APPS = APPS
 function K.canTouchApp(app, screen)
-  local minimum={agent=12,clock=12,calc=12,calendar=12,lights=12,memory=12,tictactoe=12}
+  local minimum={agent=8,clock=12,calc=12,calendar=12,lights=12,memory=12,tictactoe=12}
   return app and app.touch and screen.w>=32 and screen.h-2>=(minimum[app.id]or 8)
 end
 local function appById(id)
@@ -328,6 +331,7 @@ function K.spawn(fn, opts)
     p.term = p.win.buf
   end
   procs[#procs + 1] = p
+  os.queueEvent("ccos_wake")
   return p
 end
 
@@ -437,6 +441,11 @@ function K.buildScreens()
     s.target, s.kind = target, kind
     local was = s.role
     s.role = conf.role or defaultRole
+    if was=="picture"and s.role~="picture"and byName.term then
+      local dest=byName.term;dest.dialogs=dest.dialogs or {}
+      for _,d in ipairs(s.dialogs or {})do d.screen=dest;dest.dialogs[#dest.dialogs+1]=d end
+      s.dialogs={}
+    end
     s.scaleCfg = conf.scale or "auto"
     if was and was ~= "off" and s.role == "off" then
       pcall(function()
@@ -470,9 +479,14 @@ function K.buildScreens()
     K.cfg.screenLayout = 2
     K.saveConfig()
   end
+  K.primaryMonitorName=mons[1]and mons[1].color and mons[1].name or nil
+  for _,m in ipairs(mons)do if m.color and m.name==K.cfg.mainMonitor then K.primaryMonitorName=m.name;break end end
   -- The biggest advanced monitor is a touch-only hub; the rest are panels.
   local first = true
   for _, x in ipairs(mons) do
+    if x.name==K.primaryMonitorName and K.cfg.fullSync then
+      K.cfg.screens[x.name]=K.cfg.screens[x.name]or {};K.cfg.screens[x.name].role="mirror";K.cfg.screens[x.name].scale="auto"
+    end
     make(x.name, x.m, "monitor", (x.color and first) and "picture" or "panel")
     if x.color then first = false end
   end
@@ -487,6 +501,20 @@ function K.buildScreens()
     layout(w)
   end
   if markAll then markAll() end
+end
+
+function K.pictureScreen()
+  local s=K.primaryMonitorName and screenByName[K.primaryMonitorName]
+  if s and s.role=="picture"then return s end
+  for _,candidate in ipairs(screens)do if candidate.kind=="monitor"and candidate.role=="picture"then return candidate end end
+end
+function K.setFullSync(enabled)
+  local current=K.pictureScreen()
+  local name=current and current.name or K.primaryMonitorName
+  if not name then return false,"No advanced monitor is connected"end
+  K.cfg.fullSync=enabled==true;K.cfg.mainMonitor=name
+  local conf=K.cfg.screens[name]or {};conf.role=enabled and "mirror"or "picture";conf.scale="auto";K.cfg.screens[name]=conf
+  K.saveConfig();K.buildScreens();return true
 end
 
 ------------------------------------------------------------------------
@@ -677,20 +705,20 @@ local nextDialog = 1
 -- cb(index, text). Also queues ccos_dialog id index text.
 function K.dialog(o)
   local s = o.screen or K.activeScreen()
-  -- Typing only happens with the computer's own screen open, which hides
-  -- the monitors, so anything that needs the keyboard goes there.
-  if o.input and s.kind ~= "term" then
+  -- Big Picture keeps the prompt on the monitor and bridges its field to
+  -- the computer input console. Other monitor roles use a desktop prompt.
+  if o.input and s.kind ~= "term" and s.role~="picture" then
     K.notify("Type on the computer", o.title or "", { icon = "terminal", quiet = true, time = 6000 })
     s = screenByName.term
   end
   local d = { id = nextDialog, title = o.title or "ccOS", text = o.text or "", buttons = o.buttons or { "OK" },
-    cb = o.cb, screen = s, owner = running }
+    cb = o.cb, screen = s, owner = not o.detached and running or nil, enterChoice=o.enterChoice }
   nextDialog = nextDialog + 1
   if o.input then d.field = { text = tostring(o.input == true and "" or o.input), secret = o.secret } end
   s.dialogs = s.dialogs or {}
   s.dialogs[#s.dialogs + 1] = d
   K.sfx("open")
-  markDirty(s)
+  markAll()
   return d.id
 end
 
@@ -701,8 +729,9 @@ local function answer(s, d, index)
   local text = d.field and d.field.text
   if d.cb then pcall(d.cb, index, text) end
   os.queueEvent("ccos_dialog", d.id, index, text)
-  markDirty(s)
+  markAll()
 end
+K.answerDialog=answer
 
 local function topDialog(s) return s.dialogs and s.dialogs[1] end
 
@@ -712,6 +741,7 @@ local function topDialog(s) return s.dialogs and s.dialogs[1] end
 
 local B, CS   -- buffer and screen being drawn
 local picture = loadModule(ROOT .. "/lib/picture.lua")(K, gfx, T)
+local inputConsole=loadModule(ROOT.."/lib/input.lua")(K,T)
 K.panelPage, K.panelPinned, K.panelAt = 1, false, now()
 local PANEL_PAGES = { "clock", "music", "notes", "system" }
 
@@ -1306,7 +1336,7 @@ local function drawDialog(s, d)
     local room = w - 6
     if #shown > room then shown = shown:sub(-room) end
     put(x + 3, yy, shown, T.text, T.bg)
-    s.cursor = { x = x + 3 + #shown, y = yy, color = T.accent }
+    if s.kind=="term"then s.cursor = { x = x + 3 + #shown, y = yy, color = T.accent }end
     yy = yy + 2
   end
   local bx = x + w - 1
@@ -1633,6 +1663,9 @@ local function compose(s)
     drawPanel(s)
   elseif K.saver then
     drawSaver(s)
+  elseif s.kind=="term" and K.pictureScreen()then
+    inputConsole.draw(s,K.pictureScreen())
+    local d=topDialog(s);if d and not d.field then drawDialog(s,d)end
   elseif s.role == "picture" then
     picture.draw(s)
     local d = topDialog(s); if d then drawDialog(s,d) end
@@ -1667,7 +1700,7 @@ local function compose(s)
     end
   end
   local cur = s.cursor
-  if not cur and not K.booting and not K.saver and s.role == "desktop" and not s.menu and not s.popup
+  if not cur and not K.booting and not K.saver and s.role == "desktop" and not(s.kind=="term"and K.pictureScreen())and not s.menu and not s.popup
     and not topDialog(s) and not (K.palette and K.palette.screen == s) then
     local w = K.focus
     if w and w.screen == s and w.state ~= "min" and w.buf.getCursorBlink and w.buf.getCursorBlink() then
@@ -1894,6 +1927,15 @@ local function keyboard(ev)
   if e ~= "key_up" and wakeSaver() then return end
   if K.booting then return end
   local alt = held[keys.leftAlt] or held[keys.rightAlt]
+  local pictureTarget=K.pictureScreen()
+  if pictureTarget then
+    if e=="key"and((alt and ev[2]==keys.a)or ev[2]==keys.f1)then K.launch("agent",{},{screen=pictureTarget});return end
+    for _,ss in ipairs(screens)do local dialog=topDialog(ss);if dialog and not dialog.field then
+      if e=="key"and ev[2]==keys.enter then answer(ss,dialog,dialog.enterChoice or 1)end
+      return
+    end end
+    inputConsole.keyboard(ev,pictureTarget);return
+  end
   if e == "key" and ev[2] == keys.f1 then K.launch("agent", nil, {screen=screenByName.term}); return end
   if alt and e == "key" and shortcut(ev[2]) then markAll(); return end
   if alt and e == "char" then return end
@@ -1902,7 +1944,7 @@ local function keyboard(ev)
     local d = topDialog(s)
     if d and e ~= "key_up" then
       if d.field then dialogInput(s, d, ev)
-      elseif e == "key" and ev[2] == keys.enter then answer(s, d, #d.buttons) end
+      elseif e == "key" and ev[2] == keys.enter then answer(s, d, d.enterChoice or #d.buttons) end
       return
     end
   end
@@ -1983,7 +2025,10 @@ function K.launch(id, args, opts)
     if id=="files"and args[1]then s.picture.path=args[1]end
     markDirty(s);return {id=0,virtual=true}
   end
-  if s.role == "picture" and not K.canTouchApp(app,s) then s = screenByName.term; K.notify("Opened on computer", app.name, {quiet=true,silent=true})
+  if s.role == "picture" and not K.canTouchApp(app,s) then
+    K.dialog({screen=s,title="Open desktop tool?",text=app.name.." needs the desktop. Switch to Full Sync?",buttons={"Cancel","Full Sync"},cb=function(i)if i==2 then K.setFullSync(true);K.launch(id,args,{screen=screenByName.term})end end})
+    return nil,"Full Sync required"
+
   elseif s.role ~= "desktop" and s.role ~= "picture" then s = K.homeScreen() end
   if s.role == "picture" and app.touch then s.picture=s.picture or {page=1,path="/",category="Favorites"};s.picture.view=id end
   if id=="agent"then
@@ -2006,7 +2051,7 @@ function K.launch(id, args, opts)
   end
   local title = opts.title or (app.needsFile and args[1] and (app.name .. ": " .. fs.getName(args[1]))) or app.name
   local p = K.spawn(fn, { title = title, app = app, window = { screen = s, w = app.w, h = app.h } })
-  if s.role=="picture" then s.picture.appPid=p.id end
+  if s.role=="picture" then s.picture.appPid=p.id;markDirty(screenByName.term)end
   K.sfx("open")
   return p
 end
@@ -2281,6 +2326,7 @@ command("screen", "screen <name> <picture|desktop|mirror|panel|off> [scale]", "S
   if name == "term" then error("The computer's own screen is always a desktop", 0) end
   local conf = K.cfg.screens[name] or {}
   conf.role = role
+  if name==K.primaryMonitorName then K.cfg.fullSync=role=="mirror"end
   if a[3] then conf.scale = a[3] == "auto" and "auto" or tonumber(a[3]) end
   K.cfg.screens[name] = conf
   K.saveConfig()
@@ -2312,6 +2358,10 @@ end)
 command("ai", "ai [task]", "Open the ccOS agent or give it a task", function(a,out)
   K.launch("agent", nil, {screen=screenByName.term})
   if #a>0 then local ok,err=K.agent.start(table.concat(a," ")); if not ok then out(err,T.warn)end end
+end)
+command("update","update [check]","Check for or install ccOS updates",function(a,out)
+  local ok,why;if a[1]=="check"then ok,why=K.updates.check(true)else ok,why=K.updates.install()end
+  if not ok then out(why,T.warn)end
 end)
 command("timezone", "timezone <zone|fixed> [minutes]", "Set the system time zone", function(a,out)
   if not a[1]then out(clock.label(K.cfg));return end
@@ -2374,6 +2424,8 @@ end
 function API.theme() return T end
 -- Whether the last tap or click came from a monitor.
 function API.touchInput() return K.lastTouch == true end
+function API.pictureScreenName()local s=K.pictureScreen();return s and s.name end
+function API.setFullSync(on)return K.setFullSync(on)end
 function API.isTouch()
   local s = callerScreen()
   return s and s.touch or false
@@ -2481,19 +2533,20 @@ function API.prompt(title, text, default)
 end
 
 function K.validateSetting(key, value)
-  local booleans={clock24=true,seconds=true,leadingZero=true,sounds=true,touchSounds=true,shadows=true,swapSpeakers=true,agentConfirm=true}
+  local booleans={clock24=true,seconds=true,leadingZero=true,sounds=true,touchSounds=true,shadows=true,swapSpeakers=true,agentConfirm=true,fullSync=true,autoUpdates=true}
   if booleans[key] then return type(value)=="boolean", "Expected a boolean" end
   if key=="timezone" then return type(value)=="string" and clock.valid(value), "Unsupported time zone" end
   if key=="theme" then return type(value)=="string" and THEMES[value]~=nil, "Unknown theme" end
   if key=="wallpaper" then for _,v in ipairs(gfx.WALLPAPERS)do if value==v then return true end end;return false,"Unknown wallpaper" end
   if key=="user" then return type(value)=="string" and #value>0 and #value<=40,"Name must be 1-40 characters" end
-  if key=="agentModel" then return type(value)=="string" and #value<=160 and value:match("^[%w%._:/%-]+$")~=nil,"Invalid model id" end
+  if key=="agentModel" then return type(value)=="string" and #value<=160 and value:match("^[%w%._:/~%-]+$")~=nil,"Invalid model id" end
   local ranges={utcOffset={-720,840},musicVolume={0,1},uiVolume={0,1},balance={-1,1},idle={0,86400},panelRotate={4,3600},agentMaxSteps={1,40},agentMaxTokens={256,8192}}
   if ranges[key]then local r=ranges[key];return type(value)=="number" and value==value and value>=r[1] and value<=r[2],"Value out of range" end
   return false,"Setting cannot be changed through this interface"
 end
 function API.config(key, value)
   if value == nil then return K.cfg[key] end
+  if key=="fullSync"then return K.setFullSync(value)end
   K.cfg[key] = value
   K.saveConfig()
   if key == "theme" then
@@ -2503,6 +2556,7 @@ function API.config(key, value)
     for _, s in ipairs(screens) do s.wallKey = nil end
   elseif key == "swapSpeakers" then
     audio.detect()
+  elseif key=="autoUpdates"and value and K.updates then K.updates.check(false)
   elseif key == "screens" then
     K.buildScreens()
   end
@@ -2520,7 +2574,7 @@ function API.screens()
 end
 function API.setScreen(name, role, scale)
   local conf = K.cfg.screens[name] or {}
-  if role then conf.role = role end
+  if role then conf.role = role;if name==K.primaryMonitorName then K.cfg.fullSync=role=="mirror"end end
   if scale then conf.scale = scale end
   K.cfg.screens[name] = conf
   K.saveConfig()
@@ -2681,6 +2735,7 @@ local tickTimer, animTimer
 local function onTick()
   tickTimer = os.startTimer(1)
   local t = now()
+  if K.updates then K.updates.maybePrompt()end
   if K.booting and t - K.bootStart > 2200 then
     K.booting = false
     markAll()
@@ -2796,11 +2851,14 @@ local function boot()
   API.ui = ui
   K.agent = loadModule(ROOT .. "/lib/agent.lua")(K, json)
   API.agent = K.agent
+  K.updates=loadModule(ROOT.."/lib/updater.lua")(K,json,sha256,installer)
+  API.updates=K.updates
   API.suite = loadModule(ROOT .. "/lib/suite.lua")
   writeBin()
   K.booting, K.bootStart = true, now()
   K.spawn(audio.service, { title = "Audio", service = true })
   K.spawn(hwService, { title = "Devices", service = true })
+  K.spawn(K.updates.service,{title="Update monitor",service=true})
   audio.boot()
   tickTimer = os.startTimer(0.2)
   markAll()

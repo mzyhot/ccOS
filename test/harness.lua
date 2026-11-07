@@ -364,12 +364,14 @@ local function readReal(path)
   f:close()
   return s
 end
-local SOURCE_FILES = { "ccos/apps/about.lua", "ccos/apps/agent.lua", "ccos/apps/calc.lua", "ccos/apps/clock.lua", "ccos/apps/files.lua", "ccos/apps/music.lua", "ccos/apps/notifications.lua", "ccos/apps/piano.lua", "ccos/apps/print.lua", "ccos/apps/settings.lua", "ccos/apps/tasks.lua", "ccos/apps/tools.lua", "ccos/apps/viewer.lua", "ccos/kernel.lua", "ccos/lib/agent.lua", "ccos/lib/audio.lua", "ccos/lib/catalog.lua", "ccos/lib/gfx.lua", "ccos/lib/json.lua", "ccos/lib/picture.lua", "ccos/lib/suite.lua", "ccos/lib/time.lua", "ccos/lib/ui.lua", "ccos/setup.lua" }
+local SOURCE_FILES = { "ccos/apps/about.lua", "ccos/apps/agent.lua", "ccos/apps/calc.lua", "ccos/apps/clock.lua", "ccos/apps/files.lua", "ccos/apps/music.lua", "ccos/apps/notifications.lua", "ccos/apps/piano.lua", "ccos/apps/print.lua", "ccos/apps/settings.lua", "ccos/apps/tasks.lua", "ccos/apps/tools.lua", "ccos/apps/viewer.lua", "ccos/kernel.lua", "ccos/lib/agent.lua", "ccos/lib/audio.lua", "ccos/lib/catalog.lua", "ccos/lib/gfx.lua", "ccos/lib/input.lua", "ccos/lib/install.lua", "ccos/lib/json.lua", "ccos/lib/picture.lua", "ccos/lib/sha256.lua", "ccos/lib/suite.lua", "ccos/lib/time.lua", "ccos/lib/ui.lua", "ccos/lib/updater.lua", "ccos/setup.lua", "ccos/update.lua" }
 for _, rel in ipairs(SOURCE_FILES) do
   local s = readReal(SRC .. "/" .. rel)
   if not s then error("missing " .. rel) end
   writeFile(rel, s)
 end
+
+writeFile("update.lua",readReal(SRC.."/../update.lua"))
 
 -- Stand-ins for ROM programs.
 writeFile("rom/programs/shell.lua", [[
@@ -594,7 +596,7 @@ end
 
 local KEYS = { space = 32, enter = 257, tab = 258, backspace = 259, delete = 261, right = 262, left = 263,
   down = 264, up = 265, pageUp = 266, pageDown = 267, home = 268, ["end"] = 269, leftShift = 340,
-  leftCtrl = 341, leftAlt = 342, rightAlt = 346, f1 = 290, f5 = 294, numPadEnter = 335 }
+  leftCtrl = 341, leftAlt = 342, rightAlt = 346, escape = 256, f1 = 290, f5 = 294, numPadEnter = 335 }
 for i = 0, 9 do KEYS[({ "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine" })[i + 1]] = 48 + i end
 for c = 97, 122 do KEYS[string.char(c)] = c - 32 end
 keys = {}
@@ -871,6 +873,9 @@ local T0 = 0
 local script = {}
 local function step(dt, fn) script[#script + 1] = { dt = dt, fn = fn } end
 
+if SCENARIO=="desktop-menu"or SCENARIO=="tools-desktop"or SCENARIO=="tool-logic"or SCENARIO:match("^agent")then
+  writeFile("ccos/config.cfg",'{["screenLayout"]=2,["fullSync"]=true,["autoUpdates"]=false}')
+end
 if SCENARIO == "home" then
   -- this run tests the big monitor as its own widescreen desktop
   writeFile("ccos/config.cfg", '{["screenLayout"]=2,["screens"]={["monitor_0"]={["role"]="desktop"}}}')
@@ -988,16 +993,111 @@ elseif SCENARIO == "picture" or SCENARIO == "picture-small" or SCENARIO == "pict
     step(3,tap("main","Files"));step(6,expect("main","+ ccos/","compact file list"));home()
     category("Games");step(3,function()if not findText("main","Dice")then tap("main","Next >")()end end);step(3,tap("main","Dice"));step(6,tap("main","Roll"));step(4,function()capture("ccOS compact dice",{"main"});noTyping()end);home()
   end
-  step(2,alt("a"));step(10,expect("term","Ask ccOS...","desktop AI composer"));step(2,noTyping)
-  step(2,alt("space"));step(2,typeText("exit"));step(2,keyPress("enter"))
+  step(2,alt("a"));step(10,expect("term","Message AI Agent","computer input bridge"));step(2,noTyping)
+  step(2,function()ccos.exit()end)
+elseif SCENARIO=="sync-input"then
+  step(100,function()capture("Big Picture input console");if findText("term","Terminal")then fail("Desktop leaked into input console")end;ccos.launch("notes",{},"monitor_0")end)
+  step(8,tap("main","New"))
+  step(5,expect("term","Note name","monitor prompt bridges to computer"))
+  step(2,function()for _=1,#"note.txt"do keyPress("backspace")()end;typeText("bridge.txt")()end);step(2,keyPress("enter"))
+  step(5,expect("term","Note text","second bridged prompt"))
+  step(2,typeText("Typed on the computer"))
+  step(4,expect("main","Typed on the computer","prompt preview stays in step"))
+  step(2,function()capture("Bridged text prompt");tap("main","OK")()end)
+  step(8,function()local n=node("notes/bridge.txt");if not n or n.data~="Typed on the computer"then fail("Bridged note not saved")end;ccos.launch("settings",{},"monitor_0")end)
+  step(5,tap("main","Full Sync with desktop"))
+  step(8,function()
+    local roles=ccos.screens();if roles[2].role~="mirror"then fail("Full Sync did not select mirror")end
+    local m,t=mainMon._t,computer._t;local ox=floor((m.w-t.w)/2);for y=1,t.h do if m.text[y]:sub(ox+1,ox+t.w)~=t.text[y]then fail("Full Sync differs at row "..y);break end end
+    local cfg=textutils.unserialize(node("ccos/config.cfg").data);if not cfg.fullSync then fail("Full Sync not persisted")end
+    capture("Full Sync desktop")
+    ccos.setFullSync(false)
+  end)
+  step(8,expect("term","Monitor input","returning to Big Picture removes desktop"))
+  step(2,function()ccos.exit()end)
+elseif SCENARIO=="input-agent"then
+  http=assert(realLoad(readReal("agent_mock.lua")))()({scenario="agent-malformed",push=push,after=function(dt,fn)at(tick+dt,fn)end})
+  step(100,function()ccos.agent.setKey("sk-or-test-key");ccos.launch("agent",{},"monitor_0")end)
+  step(8,expect("term","Message AI Agent","AI keyboard bridge"))
+  step(2,typeText("Hello from keyboard"));step(2,keyPress("enter"))
+  step(15,function()if ccos.agent.messages[1].text~="Hello from keyboard"or ccos.agent.status~="Done"then fail("AI text did not reach monitor agent")end;capture("AI input bridge");ccos.agent.configure()end)
+  step(5,typeText("sk-or-secret-bridge"))
+  step(4,function()if findText("term","sk-or-secret-bridge")or findText("main","sk-or-secret-bridge")then fail("Secret input exposed")end;capture("Masked API key prompt",{"term"})end)
+  step(2,keyPress("enter"))
+  step(5,function()if node("ccos/private/openrouter.cfg").data~="sk-or-secret-bridge"then fail("Key bridge did not save")end;ccos.exit()end)
+elseif SCENARIO=="agent-models"then
+  http=assert(realLoad(readReal("agent_mock.lua")))()({scenario=SCENARIO,push=push,after=function(dt,fn)at(tick+dt,fn)end})
+  step(100,function()ccos.agent.refreshModels()end)
+  step(10,function()
+    if not ccos.agent.models or #ccos.agent.models~=2 or not ccos.agent.models[1].free then fail("Tool-capable model catalog not filtered/sorted")end
+    local ok,why=ccos.agent.selectModel("nvidia/nemotron-3.5-lightning:free");if not ok then fail(why)end
+    if ccos.agent.selectModel("example/no-tools")then fail("Non-tool model accepted from catalog")end
+    if ccos.config("agentModel")~="nvidia/nemotron-3.5-lightning:free"then fail("Selected model not saved")end
+    local _,closed=http.stats();if closed~=1 then fail("Model catalog handle leaked")end;ccos.exit()
+  end)
+elseif SCENARIO=="update-standalone"then
+  writeFile("ccos/config.cfg",textutils.serialize({screenLayout=2,user="Preserved",autoUpdates=false}))
+  writeFile("ccos/private/openrouter.cfg","sk-or-preserved")
+  local bundled=readReal(SRC.."/../setup.lua"):gsub('local VERSION = "2.1"','local VERSION = "2.2"')
+  http={get=function(opts)
+    assert(opts.url=="https://raw.githubusercontent.com/mzyhot/ccOS/main/setup.lua")
+    return {read=function(n)return bundled:sub(1,n)end,close=function()end}
+  end}
+  step(100,function()
+    if not ccos or ccos.version~="2.2"then fail("Standalone updater did not restart into new version")end
+    if ccos.config("user")~="Preserved"or node("ccos/private/openrouter.cfg").data~="sk-or-preserved"or not node("notes/todo.txt")then fail("Standalone update lost user data")end
+    if node("startup.before-ccos.lua")then fail("Standalone update ran setup wizard")end
+    ccos.exit()
+  end)
+elseif SCENARIO:match("^updates%-")then
+  local mode=SCENARIO:sub(9)
+  writeFile("ccos/config.cfg",textutils.serialize({screenLayout=2,autoUpdates=mode=="auto"or mode=="same",user="Preserved",timezone="Asia/Kolkata"}))
+  writeFile("ccos/private/openrouter.cfg","sk-or-update-preserved")
+  writeFile("startup.lua",'shell.run("/ccos/kernel.lua")\n')
+  local files={};for _,rel in ipairs(SOURCE_FILES)do files[#files+1]=rel end;files[#files+1]="update.lua"
+  local sha=assert(realLoad(readReal(SRC.."/ccos/lib/sha256.lua")))()
+  http=assert(realLoad(readReal("update_mock.lua")))()({mode=mode,files=files,sha=sha,push=push,after=function(dt,fn)at(tick+dt,fn)end,read=function(rel)return rel=="update.lua"and readReal(SRC.."/../update.lua")or readReal(SRC.."/"..rel)end})
+  local oldKernel=node("ccos/kernel.lua").data
+  if mode=="rollback"then
+    local move=fs.move;local injected=false
+    fs.move=function(a,b)if not injected and a:find(".ccos-stage-",1,true)and not a:find("previous",1,true)and b=="/ccos/kernel.lua"then injected=true;error("Injected update commit failure")end;return move(a,b)end
+  end
+  step(100,function()
+    if mode~="auto"and mode~="same"then ccos.updates.check(true)end
+  end)
+  step(100,function()
+    if mode=="offline"then if ccos.updates.available then fail("Offline check invented a release")end;ccos.exit();return end
+    if mode=="same"then if ccos.updates.available or findText("main","Update & restart")then fail("Unchanged state prompted for update")end;ccos.exit();return end
+    if not ccos.updates.available or not findText("main","Update & restart")then capture("Missing update prompt");fail("Update prompt missing: "..ccos.updates.status)end
+    if mode=="later"then tap("main","Later")()else tap("main","Update & restart")()end
+  end)
+  if mode=="later"then
+    step(5,function()if ccos.version~="2.1"then fail("Declined update changed version")end;ccos.exit()end)
+  elseif mode=="rollback"then
+    step(500,function()
+      if node("ccos/kernel.lua").data~=oldKernel or ccos.version~="2.1"then fail("Failed update did not roll back")end
+      if not ccos.updates.status:find("rolled back",1,true)then fail("Update rollback not reported")end
+      for _,name in ipairs(fs.list("/"))do if name:find(".ccos-stage-",1,true)then fail("Update left staging files")end end
+      ccos.exit()
+    end)
+  elseif mode=="corrupt"then
+    step(200,function()if ccos.version~="2.1"or not node("ccos/kernel.lua").data:find('local VERSION = "2.1"',1,true)then fail("Corrupt update changed code")end;if not ccos.updates.status:find("Checksum mismatch",1,true)then fail("Corruption not reported")end;ccos.exit()end)
+  elseif mode=="auto"or mode=="install"then
+    step(500,function()
+      if ccos.version~="2.2"then fail("Verified update did not restart into new OS")end
+      if ccos.config("user")~="Preserved"or ccos.config("timezone")~="Asia/Kolkata"then fail("Update changed preferences")end
+      if node("ccos/private/openrouter.cfg").data~="sk-or-update-preserved"or not node("notes/todo.txt")then fail("Update changed data/key")end
+      capture("Updated OS after restart");ccos.exit()
+    end)
+  end
 elseif SCENARIO=="tool-logic"then
   step(100,function()
     local checkTools=assert(realLoad(readReal("suite_checks.lua")))()
     local ok,count=pcall(checkTools,{makeTerm=makeTerm})
     if not ok then fail("Tool behavior check: "..tostring(count))else log(tostring(count).." tool behavior assertions passed")end
   end)
-  step(2,alt("space"));step(2,typeText("exit"));step(2,keyPress("enter"))
-elseif SCENARIO=="agent"or SCENARIO=="agent-error"or SCENARIO=="agent-malformed"or SCENARIO=="agent-cancel"or SCENARIO=="agent-cancel-http"or SCENARIO=="agent-timeout"or SCENARIO=="agent-deny"then
+  step(2,function()ccos.exit()end)
+elseif SCENARIO=="agent"or SCENARIO=="agent-error"or SCENARIO=="agent-malformed"or SCENARIO=="agent-cancel"or SCENARIO=="agent-cancel-http"or SCENARIO=="agent-timeout"or SCENARIO=="agent-deny"or SCENARIO=="agent-route-error"then
   local factory=assert(realLoad(readReal("agent_mock.lua")))()
   http=factory({scenario=SCENARIO,push=push,after=function(dt,fn)at(tick+dt,fn)end})
   step(100,function()
@@ -1034,10 +1134,16 @@ elseif SCENARIO=="agent"or SCENARIO=="agent-error"or SCENARIO=="agent-malformed"
     step(15,function()if ccos.agent.busy then fail("error handling did not finish")end
       if SCENARIO=="agent-error"and ccos.agent.status~="Error"then fail("HTTP failure not shown")end
       if SCENARIO=="agent-malformed"and ccos.agent.status~="Done"then fail("malformed tool error did not recover")end
+      if SCENARIO=="agent-route-error"then
+        local e=ccos.agent.lastError
+        if not e or e.code~=404 or not e.message:find("No endpoints found",1,true)or not e.message:find("provider route rejected",1,true)then fail("Provider error body was discarded")end
+        if e and e.message:find("sk-or-test-key",1,true)then fail("Provider error leaked credentials")end
+        local _,closed=http.stats();if closed~=1 then fail("Error handle leaked")end
+      end
       capture("ccOS agent response handling",{"term"})
     end)
   end
-  step(2,alt("space"));step(2,typeText("exit"));step(2,keyPress("enter"))
+  step(2,function()ccos.exit()end)
 elseif SCENARIO == "tools-desktop"or SCENARIO == "tools-monitor"then
   local toolCatalog=assert(realLoad(readReal(SRC.."/ccos/lib/catalog.lua")))()
   step(100,function()capture("ccOS desktop",{"term"})end)
@@ -1054,7 +1160,7 @@ elseif SCENARIO == "tools-desktop"or SCENARIO == "tools-monitor"then
       step(3,function()end)
     end
   end
-  step(2,alt("space"));step(2,typeText("exit"));step(2,keyPress("enter"))
+  step(2,function()ccos.exit()end)
 elseif SCENARIO == "desktop-menu" then
   step(100, function() capture("Computer desktop", { "term" }) end)
   step(2, alt("s"))
@@ -1162,8 +1268,9 @@ elseif SCENARIO=="install"or SCENARIO=="setup"or SCENARIO=="setup-offline"or SCE
     if not ccos then fail("Setup did not restart into the OS")end
     if node("ccos/data/preserved.txt").data~="preserved user data"then fail("Setup changed user data")end
   end)
-  step(2,alt("space"));step(2,typeText("exit"));step(2,keyPress("enter"))
+  step(2,function()ccos.exit()end)
 elseif SCENARIO == "small" then
+  writeFile("ccos/config.cfg",'{["screenLayout"]=2,["screens"]={["monitor_0"]={["role"]="desktop"}}}')
   -- one small monitor desktop, no panel, one speaker
   devices.monitor_1, devices.speaker_1 = nil, nil
   mainMon = makeMonitor(4, 3, true)
@@ -1181,7 +1288,9 @@ end
 
 ---------------------------------------------------------------- run
 local chunk
-if SCENARIO=="install"or SCENARIO:match("^setup")then
+if SCENARIO=="update-standalone"then
+  chunk=function()shell.run("update.lua");if powered=="reboot"then powered=nil;shell.run("ccos/kernel.lua")end end
+elseif SCENARIO=="install"or SCENARIO:match("^setup")then
   chunk=function()
     shell.run("setup")
     if powered=="reboot"then powered=nil;shell.run("startup.lua")end
@@ -1189,7 +1298,13 @@ if SCENARIO=="install"or SCENARIO:match("^setup")then
 else
   chunk = assert(loadfile("ccos/kernel.lua", nil, setmetatable({ shell = shell, require = require }, { __index = _G })))
 end
-local main = coroutine.create(function() return chunk() end)
+local main = coroutine.create(function()
+  if SCENARIO=="updates-install"or SCENARIO=="updates-auto"then
+    local ok,why=pcall(chunk)
+    if powered=="reboot"then powered=nil;return assert(loadfile("ccos/kernel.lua",nil,setmetatable({shell=shell,require=require},{__index=_G})))()end
+    if not ok then error(why)end
+  else return chunk()end
+end)
 local filter
 local function resume(ev)
   local ok, f = coroutine.resume(main, table.unpack(ev, 1, ev.n))

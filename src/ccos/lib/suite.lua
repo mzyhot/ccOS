@@ -18,7 +18,6 @@ return function(id, initial)
   local function status(msg)app.message=tostring(msg);app.messageAt=now()end
   local function save()fs.makeDir("/ccos/data");writeFile(DATA,textutils.serialize(app.data))end
   local function prompt(title,default)
-    if ui.touch()then status("Enter text on the computer or ask the AI Agent");return nil end
     return ccos.prompt(title,"",default or "")
   end
   local function safe(fn)
@@ -60,7 +59,7 @@ return function(id, initial)
   local function numeric(g,y)
     label(g,y,"Value: "..("%.8g"):format(app.value),T.accent)
     local items={{"-10",function()app.value=app.value-10 end},{"-1",function()app.value=app.value-1 end},{"+1",function()app.value=app.value+1 end},{"+10",function()app.value=app.value+10 end},{"/10",function()app.value=app.value/10 end},{"x10",function()app.value=app.value*10 end}}
-    if not ui.touch()then items[#items+1]={"Set",function()local n=prompt("Value",tostring(app.value));if tonumber(n)then app.value=tonumber(n)end end}end
+    do items[#items+1]={"Set",function()local n=prompt("Value",tostring(app.value));if tonumber(n)then app.value=tonumber(n)end end}end
     return actions(g,y+1,items)
   end
   local function chooseFile()
@@ -80,10 +79,10 @@ return function(id, initial)
   end
   local function textActions(g,y)
     local buttons={{"Load file",chooseFile},{"Save result",function()
-      local path=ui.touch()and("/notes/"..id.."-"..now()..".txt")or prompt("Save result","/notes/"..id..".txt")
+      local path=prompt("Save result","/notes/"..id..".txt")
       if path and path~=""then safe(function()writeFile(path,app.result~=""and app.result or app.text);return "Saved "..path end)end
     end}}
-    if not ui.touch()then buttons[#buttons+1]={"Enter text",function()local text=prompt("Text",app.text);if text then app.text,app.result=text,text end end}end
+    do buttons[#buttons+1]={"Edit text",function()local text=prompt("Text",app.text);if text then app.text,app.result=text,text end end}end
     return actions(g,y,buttons)
   end
   local function b64encode(text)
@@ -156,7 +155,7 @@ return function(id, initial)
     if self.browser then browser(g,y)
     elseif id=="notes"or id=="journal"then
       local buttons={{"Browse notes",function()self.source=nil;self.text=""end}}
-      if not ui.touch()then
+      do
         buttons[#buttons+1]={"New",function()
           local name=id=="journal"and ccos.date("%Y-%m-%d")..".txt"or prompt("Note name","note.txt")
           if name and name~=""then local body=prompt("Note text","");if body then local p="/notes/"..fs.getName(name);writeFile(p,body);loadText(p)end end
@@ -169,12 +168,12 @@ return function(id, initial)
       else paged(g,noteList(),y,function(e)loadText(e.path)end)end
     elseif id=="checklist"then
       local buttons={{"Clear done",function()local keep={};for _,it in ipairs(self.data.items)do if not it.done then keep[#keep+1]=it end end;self.data.items=keep;save()end}}
-      if not ui.touch()then buttons[#buttons+1]={"Add task",function()local text=prompt("New task","");if text and text~=""then self.data.items[#self.data.items+1]={text=text,done=false};save()end end}end
+      do buttons[#buttons+1]={"Add task",function()local text=prompt("New task","");if text and text~=""then self.data.items[#self.data.items+1]={text=text,done=false};save()end end}end
       y=actions(g,y,buttons)
       local items={};for i,it in ipairs(self.data.items)do items[#items+1]={label=(it.done and "[x] "or "[ ] ")..it.text,index=i}end
       paged(g,items,y,function(e)local item=self.data.items[e.index];item.done=not item.done;save()end)
     elseif id=="bookmarks"then
-      local buttons={};if not ui.touch()then buttons={{"Add",function()local name=prompt("Bookmark name","");if name then local p=prompt("Path or URL","");if p then self.data.items[#self.data.items+1]={label=name,path=p};save()end end end}}end
+      local buttons={};do buttons={{"Add",function()local name=prompt("Bookmark name","");if name then local p=prompt("Path or URL","");if p then self.data.items[#self.data.items+1]={label=name,path=p};save()end end end}}end
       y=actions(g,y,buttons);paged(g,self.data.items,y,function(e)
         if e.path:match("^https?://")then ccos.open("http",e.path)elseif fs.exists(e.path)then ccos.openFile(e.path)else status("Path is unavailable")end
       end)
@@ -332,7 +331,7 @@ return function(id, initial)
       local items={};for _,d in ipairs(ccos.hw().drives or {})do items[#items+1]={label=d.name..": "..(d.label or d.audio or(d.present and "Disk"or "Empty")),drive=d}end
       if self.drive then
         local d=self.drive;y=actions(g,y,{{"< Drives",function()self.drive=nil end},{"Browse",function()if d.mount then ccos.open("files","/"..d.mount)end end},{"Eject",function()peripheral.call(d.name,"ejectDisk");self.drive=nil end}})
-        if not ui.touch()then y=actions(g,y,{{"Label",function()local name=prompt("Disk label",d.label or "");if name then peripheral.call(d.name,"setDiskLabel",name);os.queueEvent("ccos_hw")end end}})end
+        do y=actions(g,y,{{"Label",function()local name=prompt("Disk label",d.label or "");if name then peripheral.call(d.name,"setDiskLabel",name);os.queueEvent("ccos_hw")end end}})end
         output(g,y,textutils.serialize(d))
       else paged(g,items,y,function(e)self.drive=e.drive end)end
     elseif id=="http"then
