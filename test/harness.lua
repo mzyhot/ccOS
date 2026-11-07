@@ -130,7 +130,9 @@ local function makeTerm(w, h, opts)
   return o
 end
 
-local computer = makeTerm(51, 19)
+local pocketScenario=SCENARIO:find("pocket",1,true)~=nil
+pocket=pocketScenario and {}or nil
+local computer=makeTerm(pocketScenario and 26 or 51,pocketScenario and 20 or 19,{color=SCENARIO~="pocket-basic"and SCENARIO~="setup-pocket-basic"})
 local current = computer
 term = {}
 function term.current() return current end
@@ -364,7 +366,7 @@ local function readReal(path)
   f:close()
   return s
 end
-local SOURCE_FILES = { "ccos/apps/about.lua", "ccos/apps/agent.lua", "ccos/apps/calc.lua", "ccos/apps/clock.lua", "ccos/apps/files.lua", "ccos/apps/music.lua", "ccos/apps/notifications.lua", "ccos/apps/piano.lua", "ccos/apps/print.lua", "ccos/apps/settings.lua", "ccos/apps/tasks.lua", "ccos/apps/tools.lua", "ccos/apps/viewer.lua", "ccos/kernel.lua", "ccos/lib/agent.lua", "ccos/lib/audio.lua", "ccos/lib/catalog.lua", "ccos/lib/encoding.lua", "ccos/lib/gfx.lua", "ccos/lib/input.lua", "ccos/lib/install.lua", "ccos/lib/json.lua", "ccos/lib/mirror.lua", "ccos/lib/picture.lua", "ccos/lib/sha256.lua", "ccos/lib/suite.lua", "ccos/lib/time.lua", "ccos/lib/ui.lua", "ccos/lib/updater.lua", "ccos/setup.lua", "ccos/update.lua" }
+local SOURCE_FILES = { "ccos/apps/about.lua", "ccos/apps/agent.lua", "ccos/apps/calc.lua", "ccos/apps/clock.lua", "ccos/apps/files.lua", "ccos/apps/music.lua", "ccos/apps/notifications.lua", "ccos/apps/piano.lua", "ccos/apps/print.lua", "ccos/apps/settings.lua", "ccos/apps/tasks.lua", "ccos/apps/tools.lua", "ccos/apps/viewer.lua", "ccos/kernel.lua", "ccos/lib/agent.lua", "ccos/lib/audio.lua", "ccos/lib/catalog.lua", "ccos/lib/device.lua", "ccos/lib/encoding.lua", "ccos/lib/gfx.lua", "ccos/lib/input.lua", "ccos/lib/install.lua", "ccos/lib/json.lua", "ccos/lib/mirror.lua", "ccos/lib/picture.lua", "ccos/lib/pocket.lua", "ccos/lib/power.lua", "ccos/lib/sha256.lua", "ccos/lib/startscreen.lua", "ccos/lib/suite.lua", "ccos/lib/time.lua", "ccos/lib/ui.lua", "ccos/lib/updater.lua", "ccos/setup.lua", "ccos/update.lua" }
 for _, rel in ipairs(SOURCE_FILES) do
   local s = readReal(SRC .. "/" .. rel)
   if not s then error("missing " .. rel) end
@@ -596,7 +598,7 @@ end
 
 local KEYS = { space = 32, enter = 257, tab = 258, backspace = 259, delete = 261, right = 262, left = 263,
   down = 264, up = 265, pageUp = 266, pageDown = 267, home = 268, ["end"] = 269, leftShift = 340,
-  leftCtrl = 341, leftAlt = 342, rightAlt = 346, escape = 256, f1 = 290, f5 = 294, numPadEnter = 335 }
+  leftCtrl = 341, leftAlt = 342, rightAlt = 346, escape = 256, f1 = 290, f2=291, f3=292, f4=293, f5 = 294, numPadEnter = 335 }
 for i = 0, 9 do KEYS[({ "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine" })[i + 1]] = 48 + i end
 for c = 97, 122 do KEYS[string.char(c)] = c - 32 end
 keys = {}
@@ -795,6 +797,7 @@ attach("top", "modem", makeModem())
 
 ---------------------------------------------------------------- capture
 local SCREENS = { term = computer, main = mainMon, panel = panelMon }
+if pocketScenario then devices.monitor_0=nil;devices.monitor_1=nil end
 local captures = {}
 
 local function capture(label, which)
@@ -1001,12 +1004,7 @@ elseif SCENARIO == "picture" or SCENARIO == "picture-small" or SCENARIO == "pict
     if mainMon._t.blink then fail("monitor typing cursor")end
   end
   local function category(name)
-    if SCENARIO=="picture-compact"then
-      for _=1,10 do step(3,function()local row=mainMon._t.text[2];if not row or not row:find(name,1,true)then tap("main","Cat >")()end end)end
-    else
-      local order={"Favorites","Files","Time","Media","Math","Text","Developer","System","Games","AI"}
-      for i,label in ipairs(order)do if label==name then step(3,tapXY("main",5,i+1))end end
-    end
+    for _=1,12 do step(3,function()local row=mainMon._t.text[4];if not row or not row:find(name,1,true)then tap("main","Cat >")()end end)end
   end
   local function home()step(3,tap("main","< Tools"));step(4,noTyping)end
   step(100,function()capture("ccOS compact monitor");noTyping()end)
@@ -1025,6 +1023,44 @@ elseif SCENARIO == "picture" or SCENARIO == "picture-small" or SCENARIO == "pict
   end
   step(2,alt("a"));step(10,expect("term","Message AI Agent","computer input bridge"));step(2,noTyping)
   step(2,function()ccos.exit()end)
+elseif SCENARIO=="pocket"or SCENARIO=="pocket-basic"or SCENARIO=="pocket-touch"then
+  writeFile("ccos/config.cfg",textutils.serialize({autoUpdates=false,idle=0}))
+  step(100,function()
+    if not ccos.isPocket()or ccos.device().w~=26 or ccos.config("deviceKind")~="pocket"then fail("Pocket device was not auto-detected")end
+    expect("term","ccOS Pocket","dedicated small-screen launcher")();if ccos.device().color~=(SCENARIO~="pocket-basic")then fail("Pocket colour detection differs from hardware")end;capture("Pocket Start",{"term"})
+  end)
+  if SCENARIO=="pocket-touch"then step(2,tap("term","Terminal"))else step(2,keyPress("right"));step(2,keyPress("enter"))end
+  step(8,function()if not findText("term","Terminal")then fail("Pocket keyboard launch did not open terminal")end;typeText("help")()end)
+  step(2,keyPress("enter"));step(4,function()capture("Pocket terminal",{"term"})end)
+  step(2,keyPress("f2"));step(4,expect("term","ccOS Pocket","F2 returns to Start"))
+  step(2,function()ccos.launch("settings",{},"term")end)
+  step(5,expect("term","Pocket settings","native pocket settings"))
+  step(2,keyPress("down"));step(2,keyPress("enter"))
+  step(4,function()if not ccos.config("clock24")then fail("Keyboard settings toggle did not apply")end;capture("Pocket settings",{"term"});ccos.agent.configure()end)
+  step(4,typeText("sk-or-pocket-test"));step(2,keyPress("enter"))
+  step(5,function()if node("ccos/private/openrouter.cfg").data~="sk-or-pocket-test"then fail("Pocket masked key input failed")end;ccos.launch("files",{},"term")end)
+  step(6,function()capture("Pocket Files",{"term"});ccos.launch("notes",{},"term")end)
+  step(8,keyPress("tab"));step(2,keyPress("tab"));step(2,keyPress("enter"))
+  step(5,expect("term","Note name","Tab/Enter activates native app buttons"))
+  step(2,keyPress("escape"));step(4,keyPress("f2"))
+  step(3,function()ccos.exit()end)
+elseif SCENARIO=="pocket-agent"then
+  http=assert(realLoad(readReal("agent_mock.lua")))()({scenario="agent",push=push,after=function(dt,fn)at(tick+dt,fn)end})
+  writeFile("ccos/config.cfg",textutils.serialize({autoUpdates=false,idle=0}))
+  step(100,function()ccos.agent.setKey("sk-or-test-key");ccos.launch("agent",{},"term");ccos.agent.start("Create, edit and run files on this pocket computer")end)
+  for _=1,45 do step(2,function()keyPress("f3")()end)end
+  step(15,function()
+    if ccos.agent.status~="Done"or ccos.agent.busy then fail("Pocket tool/approval loop failed")end
+    if not node("notes/agent.txt")or node("notes/agent.txt").data~="hello ccOS\ndone\n"then fail("Pocket tool loop did not preserve file operations")end
+    ccos.launch("agent",{},"term")
+  end)
+  step(6,function()capture("Pocket AI Agent",{"term"});ccos.exit()end)
+elseif SCENARIO=="power-animation"or SCENARIO=="pocket-power"then
+  writeFile("ccos/config.cfg",textutils.serialize({autoUpdates=false,idle=0}))
+  step(100,function()ccos.shutdown()end)
+  step(3,function()capture("Shutting down - frame one",{"term"});expect("term","Shutting down","power transition visible")()end)
+  step(8,function()capture("Shutting down - frame two",{"term"})end)
+
 elseif SCENARIO=="desktop-polish"then
   writeFile("ccos/config.cfg",textutils.serialize({screenLayout=2,fullSync=true,autoUpdates=false,timezone="fixed",utcOffset=-720,clock24=false,idle=0}))
   step(100,function()
@@ -1120,13 +1156,13 @@ elseif SCENARIO=="agent-models"then
 elseif SCENARIO=="update-standalone"then
   writeFile("ccos/config.cfg",textutils.serialize({screenLayout=2,user="Preserved",autoUpdates=false}))
   writeFile("ccos/private/openrouter.cfg","sk-or-preserved")
-  local bundled=readReal(SRC.."/../setup.lua"):gsub('local VERSION = "2.1.2"','local VERSION = "2.2"')
+  local bundled=readReal(SRC.."/../setup.lua"):gsub('local VERSION = "2.2"','local VERSION = "2.3"')
   http={get=function(opts)
     assert(opts.url=="https://raw.githubusercontent.com/mzyhot/ccOS/main/setup.lua")
     return {read=function(n)return bundled:sub(1,n)end,close=function()end}
   end}
   step(100,function()
-    if not ccos or ccos.version~="2.2"then fail("Standalone updater did not restart into new version")end
+    if not ccos or ccos.version~="2.3"then fail("Standalone updater did not restart into new version")end
     if ccos.config("user")~="Preserved"or node("ccos/private/openrouter.cfg").data~="sk-or-preserved"or not node("notes/todo.txt")then fail("Standalone update lost user data")end
     if node("startup.before-ccos.lua")then fail("Standalone update ran setup wizard")end
     ccos.exit()
@@ -1150,23 +1186,24 @@ elseif SCENARIO:match("^updates%-")then
   step(100,function()
     if mode=="offline"then if ccos.updates.available then fail("Offline check invented a release")end;ccos.exit();return end
     if mode=="same"then if ccos.updates.available or findText("main","Update & restart")then fail("Unchanged state prompted for update")end;ccos.exit();return end
-    if not ccos.updates.available or not findText("main","Update & restart")then capture("Missing update prompt");fail("Update prompt missing: "..ccos.updates.status)end
-    if mode=="later"then tap("main","Later")()else tap("main","Update & restart")()end
+    if not ccos.updates.available or not findText(pocketScenario and "term"or "main","Update & restart")then capture("Missing update prompt");fail("Update prompt missing: "..ccos.updates.status)end
+    if mode=="pocket"then keyPress("right")();keyPress("enter")()
+    elseif mode=="later"then tap("main","Later")()else tap("main","Update & restart")()end
   end)
   if mode=="later"then
-    step(5,function()if ccos.version~="2.1.2"then fail("Declined update changed version")end;ccos.exit()end)
+    step(5,function()if ccos.version~="2.2"then fail("Declined update changed version")end;ccos.exit()end)
   elseif mode=="rollback"then
     step(500,function()
-      if node("ccos/kernel.lua").data~=oldKernel or ccos.version~="2.1.2"then fail("Failed update did not roll back")end
+      if node("ccos/kernel.lua").data~=oldKernel or ccos.version~="2.2"then fail("Failed update did not roll back")end
       if not ccos.updates.status:find("rolled back",1,true)then fail("Update rollback not reported")end
       for _,name in ipairs(fs.list("/"))do if name:find(".ccos-stage-",1,true)then fail("Update left staging files")end end
       ccos.exit()
     end)
   elseif mode=="corrupt"then
-    step(200,function()if ccos.version~="2.1.2"or not node("ccos/kernel.lua").data:find('local VERSION = "2.1.2"',1,true)then fail("Corrupt update changed code")end;if not ccos.updates.status:find("Checksum mismatch",1,true)then fail("Corruption not reported")end;ccos.exit()end)
-  elseif mode=="auto"or mode=="install"then
+    step(200,function()if ccos.version~="2.2"or not node("ccos/kernel.lua").data:find('local VERSION = "2.2"',1,true)then fail("Corrupt update changed code")end;if not ccos.updates.status:find("Checksum mismatch",1,true)then fail("Corruption not reported")end;ccos.exit()end)
+  elseif mode=="auto"or mode=="install"or mode=="pocket"then
     step(500,function()
-      if ccos.version~="2.2"then fail("Verified update did not restart into new OS")end
+      if ccos.version~="2.3"then fail("Verified update did not restart into new OS")end
       if ccos.config("user")~="Preserved"or ccos.config("timezone")~="Asia/Kolkata"then fail("Update changed preferences")end
       if node("ccos/private/openrouter.cfg").data~="sk-or-update-preserved"or not node("notes/todo.txt")then fail("Update changed data/key")end
       capture("Updated OS after restart");ccos.exit()
@@ -1312,7 +1349,7 @@ elseif SCENARIO=="setup-rollback"or SCENARIO=="setup-no-space"then
       return move(src,dst)
     end
   end
-elseif SCENARIO=="install"or SCENARIO=="setup"or SCENARIO=="setup-offline"or SCENARIO=="setup-reinstall"then
+elseif SCENARIO=="install"or SCENARIO=="setup"or SCENARIO=="setup-offline"or SCENARIO=="setup-reinstall"or SCENARIO=="setup-pocket"or SCENARIO=="setup-pocket-basic"then
   if SCENARIO~="setup-reinstall"then root.kids.ccos=nil end
   writeFile("ccos/data/preserved.txt","preserved user data")
   if SCENARIO=="setup-reinstall"then writeFile("ccos/private/openrouter.cfg","sk-or-preserved-key")end
@@ -1325,20 +1362,21 @@ elseif SCENARIO=="install"or SCENARIO=="setup"or SCENARIO=="setup-offline"or SCE
   enter("12")
   enter("n")
   enter("midnight")
-  if SCENARIO=="setup-offline"or SCENARIO=="setup-reinstall"then enter("n")else enter("y");enter("sk-or-setup-test-key")end
+  if SCENARIO=="setup-offline"or SCENARIO=="setup-reinstall"or pocketScenario then enter("n")else enter("y");enter("sk-or-setup-test-key")end
   enter("test/tool-model")
   enter("y")
   step(2,function()capture("ccOS setup summary",{"term"})end)
   enter("y")
   step(100,function()
     capture("ccOS installed and rebooted")
+    if pocketScenario and(not ccos.isPocket()or not findText("term","ccOS Pocket"))then fail("Same setup.lua did not boot the pocket layout")end
     for _,rel in ipairs(SOURCE_FILES)do local n=node(rel);if not n or n.data~=readReal(SRC.."/"..rel)then fail("Installed source differs: "..rel)end end
     local h=fs.open("ccos/config.cfg","r");local cfg=textutils.unserialize(h.readAll());h.close()
     if not cfg.setupComplete or cfg.user~="Finn"or cfg.timezone~="America/Chicago"or cfg.clock24~=false or cfg.leadingZero~=false then fail("Wizard preferences were not saved")end
     if not node("startup.before-ccos.lua")then fail("Old startup was not preserved")end
     if not node("startup.lua").data:find("ccos/kernel.lua",1,true)then fail("Startup does not boot ccOS")end
     local key=node("ccos/private/openrouter.cfg")
-    if SCENARIO=="setup-offline"then if key then fail("Offline setup unexpectedly saved a key")end
+    if SCENARIO=="setup-offline"or pocketScenario then if key then fail("Offline setup unexpectedly saved a key")end
     elseif not key or key.data~=(SCENARIO=="setup-reinstall"and "sk-or-preserved-key"or "sk-or-setup-test-key")then fail("Wizard key was not saved/preserved")end
     if not ccos then fail("Setup did not restart into the OS")end
     if node("ccos/data/preserved.txt").data~="preserved user data"then fail("Setup changed user data")end
@@ -1374,7 +1412,7 @@ else
   chunk = assert(loadfile("ccos/kernel.lua", nil, setmetatable({ shell = shell, require = require }, { __index = _G })))
 end
 local main = coroutine.create(function()
-  if SCENARIO=="updates-install"or SCENARIO=="updates-auto"then
+  if SCENARIO=="updates-install"or SCENARIO=="updates-auto"or SCENARIO=="updates-pocket"then
     local ok,why=pcall(chunk)
     if powered=="reboot"then powered=nil;return assert(loadfile("ccos/kernel.lua",nil,setmetatable({shell=shell,require=require},{__index=_G})))()end
     if not ok then error(why)end
@@ -1419,6 +1457,15 @@ if SCENARIO=="setup-rollback"or SCENARIO=="setup-no-space"then
   if node("startup.lua").data~="-- previous startup"then fail("Failed setup changed startup")end
   if node("ccos/apps/calc.lua").data~="-- previous calculator"or node("ccos/apps/piano.lua").data~="-- previous piano"then fail("Rollback failed to restore apps")end
   for _,name in ipairs(fs.list("/"))do if name:find(".ccos-stage-",1,true)then fail("Failed setup left staging files")end end
+end
+
+if SCENARIO=="power-animation"or SCENARIO=="pocket-power"then
+  if powered~="shutdown"then fail("Animation did not finish with shutdown")end
+  if #captures<2 then fail("Animation frames missing")else
+    local a,b=captures[1],captures[2];local same=true
+    for y=1,a.h do if a.rows[y][1]~=b.rows[y][1]or a.rows[y][2]~=b.rows[y][2]or a.rows[y][3]~=b.rows[y][3]then same=false end end
+    if same then fail("Power spinner did not move")end
+  end
 end
 
 -- crash log in the virtual disk is a failure too

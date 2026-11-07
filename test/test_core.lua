@@ -82,4 +82,23 @@ equal(mirror.source(0,1,2,2,6,4),nil,"Out-of-bounds touch ignored")
 local gfx=assert(loadfile(source.."/ccos/lib/gfx.lua","t",setmetatable({colors=setmetatable({},{__index=function()return 1 end})},{__index=_G})))()
 equal(gfx.FONT.M[3],"10101","Clock M has a clear middle stem")
 equal(#gfx.FONT.M[1],5,"Clock M uses enough columns for distinct shoulders")
+local device=assert(loadfile(source.."/ccos/lib/device.lua"))()
+local target={getSize=function()return 26,20 end,isColor=function()return false end}
+equal(device.detect({},target).kind,"pocket","Pocket API selects portable shell")
+equal(device.detect(nil,target).kind,"desktop","Small terminal alone is not a pocket computer")
+equal(device.detect({},target).color,false,"Basic pocket detected")
+local startFactory=assert(loadfile(source.."/ccos/lib/startscreen.lua"))()
+local start=startFactory({},gfx,{})
+for _,size in ipairs({{82,19},{79,38},{36,10}})do
+  local cards={{id="desktop",name="Desktop"},{id="music",name="Music"},{id="clock",name="Clock"},{id="agent",name="AI Agent"},{id="units",name="Unit converter"},{id="storage",name="Storage analyzer"}}
+  local pages=start.layout(cards,size[1],size[2]);local count=0
+  for _,page in ipairs(pages)do
+    for i,tile in ipairs(page)do
+      count=count+1
+      assert(tile.x>=1 and tile.y>=1 and tile.x+tile.w-1<=size[1]and tile.y+tile.h-1<=size[2]-2,"Start tile outside monitor")
+      for j=1,i-1 do local b=page[j];assert(tile.x+tile.w<=b.x or b.x+b.w<=tile.x or tile.y+tile.h<=b.y or b.y+b.h<=tile.y,"Start tiles overlap")end
+    end
+  end
+  equal(count,#cards,"Every tile is reachable at "..size[1].."x"..size[2])
+end
 print(checks.." core assertions passed; "..#catalog.apps().." implemented utilities in catalog")

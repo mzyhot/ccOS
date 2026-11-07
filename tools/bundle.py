@@ -21,7 +21,9 @@ parts.append('}\n')
 parts.append(f'local installer=assert(load([{eq}[\n{helper}]{eq}],"@ccos-installer","t",_ENV))()\n')
 parts.append('''term.setBackgroundColor(colors.black);term.setTextColor(colors.white);term.clear();term.setCursorPos(1,1)
 print("ccOS "..VERSION..(updateMode and " updater"or " installer"))
-if not term.isColor()then printError("ccOS needs an advanced computer.");return false end
+local isPocket=pocket~=nil and pocket~=false
+if isPocket then print("Pocket computer detected: portable layout")end
+if not term.isColor()and not isPocket then printError("Use an advanced computer or a pocket computer.");return false end
 if updateMode and not fs.exists("/ccos/config.cfg")then printError("Run setup first to configure ccOS.");return false end
 local ok,why=pcall(installer.apply,FILES,{progress=function(i,n,path)print(("Checking %d/%d: %s"):format(i,n,path))end})
 if not ok then printError(why);return false end

@@ -1,10 +1,10 @@
-# ccOS 2.1.2
+# ccOS 2.2
 
-A desktop and compact touch interface for advanced CC: Tweaked computers. ccOS includes a categorized tool catalog, stereo audio, printer/disk integration, configurable clocks and an OpenRouter agent with native operating-system tools.
+A desktop, Windows 8.1-inspired touch Start screen, and pocket interface for CC: Tweaked. ccOS includes a categorized tool catalog, stereo audio, printer/disk integration, configurable clocks and an OpenRouter agent with native operating-system tools.
 
 ## Install
 
-Run this on an advanced CC: Tweaked computer:
+Run this on an advanced CC: Tweaked computer or either type of pocket computer:
 
 ```text
 wget run https://raw.githubusercontent.com/mzyhot/ccOS/main/setup.lua
@@ -17,7 +17,7 @@ Or copy the single root **setup.lua** onto the computer:
 3. Follow the five setup pages: profile, time zone, clock/appearance, optional OpenRouter connection, and finish.
 4. ccOS preserves an existing startup script as `startup.before-ccos.lua` (numbered backups if needed), then automatically restarts into the OS.
 
-`setup.lua` contains all **32** runtime files and libraries. It installs the modules into `/ccos`, verifies file contents, and then starts `/ccos/setup.lua`. No third-party Lua package downloads are required. `dist/setup.lua` is the same installer; `dist/install.lua` is a compatibility copy.
+`setup.lua` contains all **36** runtime files and libraries. It installs the modules into `/ccos`, verifies file contents, and then starts `/ccos/setup.lua`. No third-party Lua package downloads are required. `dist/setup.lua` is the same installer; `dist/install.lua` is a compatibility copy.
 
 Reinstallation skips identical files and preserves configuration, notes, tool data and the saved key. Changed code is staged before replacement and restored if installation fails. Setup checks free space before making changes. Legacy `/aurora/config.cfg` preferences and tool data are imported when there is no ccOS configuration; the old installation and user files are retained. Theme/wallpaper names are migrated. Existing startup scripts are kept.
 
@@ -27,7 +27,8 @@ To repeat only the configuration wizard later, run `/ccos/setup.lua`. To start m
 
 - **Computer in Big Picture:** a dedicated input console. When a monitor tool asks for text, type it on the computer and press Enter or tap the monitor confirmation. When the monitor shows AI Agent, type and send messages from the computer. API-key entry is masked. The desktop is hidden in this mode.
 - **Computer in Full Sync:** windowed desktop, categorized Start menu, command palette, terminals and AI chat. The top monitor fills its whole display with the same desktop, including menus and windows; monitor taps use the matching scale to map to desktop clicks.
-- **Largest advanced monitor:** compact `picture` mode. A one-row header and playback bar surround the tool workspace. Categories occupy a slim sidebar; tiny monitors use a category switcher. The old “Big Screen” heading is gone.
+- **Largest advanced monitor:** Windows 8.1-inspired `picture` mode. A full-screen Start heading, flat coloured tiles, mixed tile widths and live clock/music tiles replace the old sidebar workbench. Category arrows, All apps and pagination are touch controls. Desktop opens Full Sync. Tool views keep their compact navigation.
+- **Pocket computer:** automatically detected from the pocket API, with a 26x20 launcher, full-screen app windows and compact settings. Advanced pockets support clicks; ordinary pockets work through keyboard navigation in greyscale.
 - **Other monitors:** information panels for time, playback, notifications and hardware.
 
 Monitor categories: **Favorites, Files, Time, Media, Math, Text, Developer, System, Games, AI**. The catalog has 63 visible entries, including 45 new utilities. Monitor controls use taps and pagination. Text tools use prompts with a read-only monitor preview and input on the computer. Desktop-only tools offer to switch to Full Sync. The monitor has no keyboard composer or typing cursor. Fullscreen monitor apps have a close button and a Tools button.
@@ -50,6 +51,26 @@ screen monitor_0 picture 1
 ```
 
 `mirror` fills the entire monitor with a live view of the computer. The terminal-cell layout and background colours stretch in both axes. Each text glyph is centred once in its scaled cell to keep letters readable; artwork fills the scaled cells. Text spacing therefore expands with the display. Touches and the cursor share the same transform, including after a monitor resize. `desktop` is a separate windowed desktop. Automatic scale is available in Settings.
+
+## Pocket computers
+
+The same root `setup.lua` detects pocket hardware automatically; no separate download or manual edition choice is needed. Both advanced colour pockets and ordinary monochrome pockets are supported. Other monochrome desktop computers still require an advanced model. Detection uses [CC: Tweaked's pocket API](https://tweaked.cc/module/pocket.html), not the terminal dimensions. Saved preferences cannot force a desktop/pocket hardware identity.
+
+Pocket controls:
+
+- **Arrow keys + Enter:** select and open launcher tiles; select and change settings.
+- **Tab on Start:** next category; **Page Up/Down:** move through apps.
+- **F2:** return to pocket Start while keeping open apps.
+- **Tab inside ccOS apps:** focus visible buttons/controls; **Enter:** activate. The cursor marks focus. Native terminal/editor keys keep their usual behavior.
+- **F1 / Alt+A:** AI Agent. **F3 / F4:** allow/deny an agent action.
+- **Settings:** time zone, UTC offset, clock format, update checks, OpenRouter key/model, action review, name and power. The pocket footer exposes Home, Settings and Power on touch devices.
+- Dialog buttons stack when needed. Arrow keys select a confirmation choice; Enter submits, Escape cancels. This includes the update prompt.
+
+The pocket uses the same files, agent tools, settings, bundled modules and updater as the desktop. Hardware tools still need their corresponding peripherals; a pocket edition does not create a printer, speaker or monitor. Apps are full-screen within native 26x20 bounds. Other tools remain available by category; some complex views have fewer visible controls at once.
+
+## Power transition
+
+Shut down and restart show a Windows 8.1-inspired rotating dot ring with a native text label on the ccOS selection colour. The animation runs for about 1.6 real seconds, then powers off or restarts. It covers active monitors and pocket screens. Existing confirmation dialogs remain. Updating through the OS uses the same restart animation; leaving to CraftOS returns directly.
 
 ## New utilities
 
@@ -156,7 +177,11 @@ src/ccos/lib/agent.lua     OpenRouter tool loop and OS operations
 src/ccos/lib/time.lua      shared timezone/DST/display policy
 src/ccos/lib/json.lua      bundled JSON codec
 src/ccos/lib/encoding.lua  UTF-8 / terminal display and input boundary
-src/ccos/lib/picture.lua   compact monitor workspace
+src/ccos/lib/picture.lua   compact monitor tool views
+src/ccos/lib/startscreen.lua grouped Start tiles and live widgets
+src/ccos/lib/pocket.lua    portable launcher and fullscreen app shell
+src/ccos/lib/device.lua    pocket/desktop hardware detection
+src/ccos/lib/power.lua     shutdown/restart dot animation
 src/ccos/lib/input.lua     computer input bridge for monitor prompts
 src/ccos/lib/mirror.lua    full-monitor layout and touch transforms
 src/ccos/lib/updater.lua   checks, approval prompt and verified downloads
@@ -180,6 +205,6 @@ lua harness.lua ../src picture screens.html
 python3 ../tools/render.py screens.html shots
 ```
 
-The check runner compiles every Lua source and runs 64 core assertions, 42 tool behavior assertions and 39 simulated runtime scenarios. Coverage includes all utility rendering, actual tool controls/persistence, timezone and DST boundaries, Start and mirror input, different monitor sizes, agent multi-round tool use, action approval/denial, cancellation, late responses, authentication errors, malformed arguments, setup/restart, offline setup, reinstall, low space and rollback. Installer tests compare every installed file to source. Update tests cover approval, decline, unchanged releases, offline checks, corrupt files, rollback, restart and preserved data. Input tests cover monitor prompts, AI chat, masked key entry and switching to Full Sync. Full Sync checks cover every output-cell background, preserved glyphs, edge/corner coverage, touch app launch, live resizing and Start-to-Big-Picture transitions. Panel AM/PM labels and centred Start geometry are checked. OpenRouter tests verify request parameters, provider-error details, filtered model selection, Unicode replies on desktop/monitor, Unicode input transport and preserved Unicode file contents through action review.
+The check runner compiles every Lua source and runs 70 core assertions, 42 tool behavior assertions and 48 simulated runtime scenarios. Coverage includes all utility rendering, actual tool controls/persistence, timezone and DST boundaries, Start and mirror input, different monitor sizes, agent multi-round tool use, action approval/denial, cancellation, late responses, authentication errors, malformed arguments, setup/restart, offline setup, reinstall, low space and rollback. Installer tests compare every installed file to source. Pocket tests cover advanced/basic hardware detection and same-bundle installation, native-size navigation, settings, app button focus, AI approval, preserved updates and power animation. Start-layout checks cover 82x19, 79x38 and 36x10 tile bounds, overlap and reachability. Update tests cover approval, decline, unchanged releases, offline checks, corrupt files, rollback, restart and preserved data. Input tests cover monitor prompts, AI chat, masked key entry and switching to Full Sync. Full Sync checks cover every output-cell background, preserved glyphs, edge/corner coverage, touch app launch, live resizing and Start-to-Big-Picture transitions. Panel AM/PM labels and centred Start geometry are checked. OpenRouter tests verify request parameters, provider-error details, filtered model selection, Unicode replies on desktop/monitor, Unicode input transport and preserved Unicode file contents through action review.
 
 OpenRouter requests are mocked in tests; no real API key or paid inference is used. Rendering is based on terminal cell captures, not a real Minecraft client. A Minecraft/live-provider check remains necessary on the target computer.

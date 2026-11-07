@@ -2,11 +2,12 @@
 local ROOT="/ccos"
 local function loadModule(name)return assert(loadfile(ROOT.."/lib/"..name..".lua"))()end
 local time=loadModule("time")
+local device=loadModule("device").detect(pocket,term.current())
 local cfg={}
 if fs.exists(ROOT.."/config.cfg")then local h=fs.open(ROOT.."/config.cfg","r");local old=h and textutils.unserialize(h.readAll());if h then h.close()end;if type(old)=="table"then cfg=old end end
 local function page(title,step)
   term.setBackgroundColor(colors.black);term.setTextColor(colors.white);term.clear();term.setCursorPos(1,1)
-  term.setTextColor(colors.cyan);print("ccOS setup  "..step.." / 5");term.setTextColor(colors.white);print(title);print()
+  term.setTextColor(colors.cyan);print((device.pocket and "ccOS Pocket setup "or "ccOS setup ")..step.." / 5");term.setTextColor(colors.white);print(title);print()
 end
 local function field(label,default,secret)
   term.setTextColor(colors.lightGray);print(label..(default and default~=""and(" ["..default.."]")or ""));term.setTextColor(colors.white);write("> ")
@@ -22,6 +23,7 @@ local function unused(path)
   local n=0;local dest=path;while fs.exists(dest)do n=n+1;dest=path.."."..n end;return dest
 end
 page("Welcome. Set up your computer and monitor tools.",1)
+cfg.deviceKind=device.kind
 cfg.user=field("Your name",cfg.user or os.getComputerLabel()or "Home"):sub(1,40)
 if cfg.user==""then cfg.user="Home"end
 page("Time zone",2)
@@ -51,13 +53,13 @@ if yes(existing and "Replace your saved API key?"or "Connect OpenRouter now?",fa
   if #newKey>1024 then error("API key is too long")end
 end
 cfg.agentModel=field("OpenRouter model id (must support tools)",cfg.agentModel or "openrouter/auto")
-if not cfg.agentModel:match("^[%w%._:/%-]+$")then cfg.agentModel="openrouter/auto"end
+if not cfg.agentModel:match("^[%w%._:/~%-]+$")then cfg.agentModel="openrouter/auto"end
 cfg.agentConfirm=yes("Review agent changes before they run?",cfg.agentConfirm~=false)
 page("Ready to finish",5)
 print("User: "..cfg.user)
 print("Time zone: "..time.label(cfg))
 print("Clock: "..time.format(cfg,false))
-print("Monitor: compact categorized tools")
+print(device.pocket and "Layout: pocket launcher"or "Monitor: Start tiles")
 local connected=(newKey and newKey~="")or existing
 print("AI: "..(connected and "connected"or "configure later"))
 print()

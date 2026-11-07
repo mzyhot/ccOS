@@ -1,5 +1,5 @@
 --[[
-  ccOS                                                        v2.1.2
+  ccOS                                                        v2.2
 
   A windowed desktop for CC: Tweaked across every screen it can find:
   the computer's desktop and advanced monitors as touch-only media hubs,
@@ -11,7 +11,7 @@
   apps add the `ccos` API on top.
 ]]
 
-local VERSION = "2.1.2"
+local VERSION = "2.2"
 local ROOT = "/ccos"
 local CONFIG_PATH = ROOT .. "/config.cfg"
 local nativeTerm = term.current()
@@ -78,6 +78,8 @@ local function loadModule(path)
   return fn()
 end
 
+local device=loadModule(ROOT.."/lib/device.lua")
+K.device=device.detect(pocket,nativeTerm)
 local gfx = loadModule(ROOT .. "/lib/gfx.lua")
 local HEX = gfx.HEX
 local clock = loadModule(ROOT .. "/lib/time.lua")
@@ -100,7 +102,7 @@ local DEFAULTS = {
   sounds = true, touchSounds = true, uiVolume = 0.6, musicVolume = 0.8, balance = 0, swapSpeakers = false,
   screens = {}, panelRotate = 12, idle = 300, shadows = true,
   desktop = { "files", "terminal", "music", "piano", "clock", "calc", "print", "tasks", "settings", "agent", "notes", "checklist" },
-  fullSync=false, autoUpdates=true,
+  fullSync=false, autoUpdates=true, deviceKind="desktop",
   monitorFavorites={"files","music","clock","calc","settings","agent","notes","checklist","worldclock","units","redstone","peripherals"},
   recent = {}, screenLayout = 0, setupComplete = false, agentModel = "openrouter/auto", agentConfirm = true, agentMaxSteps = 16, agentMaxTokens = 2048,
 }
@@ -128,6 +130,7 @@ local function loadConfig()
   end
   if cfg.theme == "aurora" then cfg.theme = "ccos" end
   if cfg.wallpaper == "aurora" then cfg.wallpaper = "ccos" end
+  cfg.deviceKind=K.device.kind
   K.cfg = cfg
 end
 
@@ -424,6 +427,7 @@ local function setupScreen(s)
 end
 
 function K.homeScreen()
+  if K.device.pocket then return screenByName.term end
   for _, s in ipairs(screens) do
     if s.kind == "monitor" and s.role == "desktop" then return s end
   end
@@ -507,6 +511,7 @@ function K.buildScreens()
 end
 
 function K.pictureScreen()
+  if K.device.pocket then return nil end
   local s=K.primaryMonitorName and screenByName[K.primaryMonitorName]
   if s and s.role=="picture"then return s end
   for _,candidate in ipairs(screens)do if candidate.kind=="monitor"and candidate.role=="picture"then return candidate end end
@@ -529,7 +534,9 @@ local function workHeight(s) return s.h - s.taskH end
 function layout(w)
   local s = w.screen
   local ah = workHeight(s)
-  if s.role == "picture" then
+  if s.kind=="term"and K.device.pocket then
+    w.state="max";w.x,w.y,w.w,w.h=1,1,s.w,max(3,s.h-2)
+  elseif s.role == "picture" then
     w.x, w.y, w.w, w.h = 1, 1, max(12, s.w), max(3, s.h - 2)
   elseif w.state == "max" then
     w.x, w.y, w.w, w.h = 1, 1, s.w, ah - 1
@@ -659,6 +666,7 @@ end
 -- Keys go to the top window on the computer's screen, which is the one
 -- the player can see while typing; failing that, the focused window.
 function K.keyTarget()
+  if K.device.pocket and screenByName.term.pocketHome then return end
   if K.focus and K.focus.screen.kind == "term" and K.focus.state ~= "min" then return K.focus end
   for i = #wins, 1, -1 do
     local w = wins[i]
@@ -745,6 +753,9 @@ local function topDialog(s) return s.dialogs and s.dialogs[1] end
 local B, CS   -- buffer and screen being drawn
 local picture = loadModule(ROOT .. "/lib/picture.lua")(K, gfx, T)
 local inputConsole=loadModule(ROOT.."/lib/input.lua")(K,T)
+local pocketUI=loadModule(ROOT.."/lib/pocket.lua")(K,T)
+K.pocketUI=pocketUI
+local powerAnimation=loadModule(ROOT.."/lib/power.lua")(K,gfx,T)
 K.panelPage, K.panelPinned, K.panelAt = 1, false, now()
 local PANEL_PAGES = { "clock", "music", "notes", "system" }
 
@@ -1324,6 +1335,7 @@ function K.notificationPopup(s, x)
 end
 
 function K.toggleStart(s)
+  if K.device.pocket and s.kind=="term"then pocketUI.home();return end
   if s.menu then s.menu = nil else s.menu = { search = "" }; s.popup = nil end
   markDirty(s)
 end
@@ -1338,9 +1350,14 @@ function K.confirmPower(s, what)
 end
 
 local function drawDialog(s, d)
-  local w = min(s.w - 4, 52)
-  local lines = wrap(d.text, w - 4)
-  local h = 3 + #lines + (d.field and 2 or 0) + 1
+  local w = min(s.w - (K.device.pocket and 2 or 4), 52)
+  local total=0;for _,label in ipairs(d.buttons)do total=total+#label+3 end
+  local stacked=total>w-2
+  local extra=stacked and #d.buttons-1 or 0
+  local lines=wrap(d.text,w-4)
+  local maxLines=max(0,workHeight(s)-6-(d.field and 2 or 0)-extra)
+  while #lines>maxLines do table.remove(lines)end
+  local h = 3 + #lines + (d.field and 2 or 0) + 1+extra
   local x, y = floor((s.w - w) / 2) + 1, max(1, floor((workHeight(s) - h) / 2))
   hit(1, 1, s.w, s.h, function() end)
   shade(x + 1, y + h, w, 1)
@@ -1359,15 +1376,14 @@ local function drawDialog(s, d)
     if s.kind=="term"then s.cursor = { x = x + 3 + #shown, y = yy, color = T.accent }end
     yy = yy + 2
   end
-  local bx = x + w - 1
-  for i = #d.buttons, 1, -1 do
-    local label = " " .. d.buttons[i] .. " "
-    bx = bx - #label - 1
-    local primary = i == #d.buttons
-    local bh = s.touch and 1 or 1
-    put(bx, yy, label, primary and T.bg or T.text, primary and T.accent or T.raised)
-    local index = i
-    hit(bx, yy - (bh - 1), bx + #label - 1, yy, function() answer(s, d, index) end)
+  local bx=x+w-1
+  for i=#d.buttons,1,-1 do
+    local label=" "..d.buttons[i].." "
+    local primary=i==(d.choice or d.enterChoice or #d.buttons)
+    local by=stacked and(yy+i-1)or yy
+    if stacked then bx=x+2;label=centre(label,w-4)else bx=bx-#label-1 end
+    put(bx,by,label,primary and T.bg or T.text,primary and T.accent or T.raised)
+    local index=i;hit(bx,by,bx+#label-1,by,function()answer(s,d,index)end)
   end
 end
 
@@ -1690,6 +1706,11 @@ local function compose(s)
   elseif s.kind=="term" and K.pictureScreen()then
     inputConsole.draw(s,K.pictureScreen())
     local d=topDialog(s);if d and not d.field then drawDialog(s,d)end
+  elseif s.kind=="term"and K.device.pocket then
+    pocketUI.draw(s)
+    if s.popup then drawPopup(s)end
+    if K.palette and K.palette.screen==s then drawPalette(s)end
+    local d=topDialog(s);if d then drawDialog(s,d)end
   elseif s.role == "picture" then
     picture.draw(s)
     local d = topDialog(s); if d then drawDialog(s,d) end
@@ -1724,7 +1745,7 @@ local function compose(s)
     end
   end
   local cur = s.cursor
-  if not cur and not K.booting and not K.saver and s.role == "desktop" and not(s.kind=="term"and K.pictureScreen())and not s.menu and not s.popup
+  if not cur and not K.booting and not K.saver and s.role == "desktop" and not(s.kind=="term"and(K.pictureScreen()or(K.device.pocket and s.pocketHome)))and not s.menu and not s.popup
     and not topDialog(s) and not (K.palette and K.palette.screen == s) then
     local w = K.focus
     if w and w.screen == s and w.state ~= "min" and w.buf.getCursorBlink and w.buf.getCursorBlink() then
@@ -1943,15 +1964,24 @@ local function keyboard(ev)
     end
     if handled then markAll();return end
   end
+  if K.device.pocket and e=="key"and ev[2]==keys.f2 then pocketUI.home();return end
   if K.palette and e ~= "key_up" then paletteInput(ev); return end
   for _, s in ipairs(screens) do
     local d = topDialog(s)
     if d and e ~= "key_up" then
       if d.field then dialogInput(s, d, ev)
-      elseif e == "key" and ev[2] == keys.enter then answer(s, d, d.enterChoice or #d.buttons) end
+      elseif e=="key"then
+        if ev[2]==keys.left or ev[2]==keys.up then d.choice=((d.choice or d.enterChoice or #d.buttons)-2)%#d.buttons+1;markDirty(s)
+        elseif ev[2]==keys.right or ev[2]==keys.down then d.choice=(d.choice or d.enterChoice or #d.buttons)%#d.buttons+1;markDirty(s)
+        elseif ev[2]==keys.enter then answer(s,d,d.choice or d.enterChoice or #d.buttons)end
+      end
       return
     end
   end
+  if K.device.pocket and e=="key"and K.agent.pending then
+    if ev[2]==keys.f3 then K.agent.approve(true);return elseif ev[2]==keys.f4 then K.agent.approve(false);return end
+  end
+  if K.device.pocket and pocketUI.keyboard(ev)then return end
   for _, s in ipairs(screens) do
     if s.menu and e ~= "key_up" then
       if e == "char" then s.menu.search = s.menu.search .. ev[2]
@@ -2024,6 +2054,10 @@ function K.launch(id, args, opts)
   opts = opts or {}
   args = args or {}
   local s = opts.screen or K.activeScreen()
+  if K.device.pocket and s.kind=="term"then
+    if id=="settings"then pocketUI.home("settings");return {id=0,virtual=true}end
+    s.pocketHome=false
+  end
   if s.role=="picture"and ({files=true,music=true,settings=true,notifications=true,devices=true})[id]then
     s.picture=s.picture or {page=1,path="/",category="Favorites"};s.picture.view=id;s.picture.page=1
     if id=="files"and args[1]then s.picture.path=args[1]end
@@ -2426,6 +2460,8 @@ local function callerScreen()
 end
 
 function API.theme() return T end
+function API.device()return copy(K.device)end
+function API.isPocket()return K.device.pocket end
 -- Whether the last tap or click came from a monitor.
 function API.touchInput() return K.lastTouch == true end
 function API.pictureScreenName()local s=K.pictureScreen();return s and s.name end
@@ -2849,6 +2885,7 @@ local function boot()
   K.audio = audio
   API.audio = audio
   K.buildScreens()
+  if K.device.pocket then screenByName.term.pocketHome=true end
   _G.ccos = API
   _G.aurora = API
   ui = loadModule(ROOT .. "/lib/ui.lua")
@@ -2897,6 +2934,7 @@ local ok, err = pcall(function()
   end
 end)
 
+if ok and(K.power=="shutdown"or K.power=="reboot")then pcall(powerAnimation.play,K.power)end
 shutdown()
 term.redirect(nativeTerm)
 if not ok then

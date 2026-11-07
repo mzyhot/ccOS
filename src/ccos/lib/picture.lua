@@ -5,6 +5,7 @@
 return function(K, gfx, T)
   local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
   local P = {}
+  local startScreen=assert(loadfile(K.root.."/lib/startscreen.lua"))()(K,gfx,T)
   local function clip(text, w)
     text = tostring(text or "")
     return w > 0 and text:sub(1, w) or ""
@@ -107,6 +108,7 @@ return function(K, gfx, T)
       if H >= 3 then button(1, 3, W, min(3, H - 2), "Auto scale", function() K.api.setScreen(s.name, nil, "auto") end, true) end
       return
     end
+    if v.view=="home"then startScreen.draw(s,go);return end
     -- One-row chrome reserves almost all monitor cells for useful content.
     fill(1, 1, W, 1, T.surface)
     button(1, 1, 8, 1, v.view == "home" and "ccOS" or "< Tools", function() go("home") end, v.view == "home")
@@ -137,52 +139,6 @@ return function(K, gfx, T)
         end
         s.hits[#s.hits + 1] = { x1 = win.x, y1 = win.y + 1, x2 = win.x + win.w - 1, y2 = win.y + win.h, content = win }
       end
-    elseif v.view == "home" then
-      local categories=K.catalog.categories
-      local navW=W>=60 and 12 or 0
-      v.category=v.category or "Favorites"
-      if navW>0 then
-        fill(1,top,navW,H-2,T.surface)
-        for i,name in ipairs(categories)do
-          local yy=top+i-1
-          if yy<bottom then button(1,yy,navW,1,name,function()v.category=name;v.page=1 end,v.category==name)end
-        end
-        if bottom>top+#categories then
-          text(2,bottom-1,#K.APPS.." tools",T.muted,T.surface)
-        end
-      else
-        local index=1;for i,name in ipairs(categories)do if name==v.category then index=i end end
-        button(2,top,7,1,"< Cat",function()v.category=categories[(index-2)%#categories+1];v.page=1 end)
-        center(10,top,W-19,v.category,T.accent)
-        button(W-8,top,8,1,"Cat >",function()v.category=categories[index%#categories+1];v.page=1 end)
-        top=top+2
-      end
-      local favorites={};for _,id in ipairs(K.cfg.monitorFavorites)do favorites[id]=true end
-      local cards={}
-      for _,a in ipairs(K.APPS)do
-        if not a.hidden and ((v.category=="Favorites"and favorites[a.id])or a.category==v.category)then cards[#cards+1]=a end
-      end
-      local gx=navW+2
-      local gw=W-gx
-      local cols=max(1,min(5,floor((gw+1)/19)))
-      local rows=max(1,floor((bottom-top-1)/3))
-      local capacity=rows*cols
-      local off=pager(#cards,capacity,bottom)
-      local cw=floor((gw-(cols-1))/cols)
-      for i=1,capacity do
-        local a=cards[off+i];if not a then break end
-        local x=gx+((i-1)%cols)*(cw+1)
-        local y=top+floor((i-1)/cols)*3
-        fill(x,y,cw,2,T.surface)
-        local glyph=({agent="*",notes="+",checklist="x",worldclock="@",units="=",redstone="R",peripherals="P"})[a.id]or(gfx.GLYPHS[a.id]and gfx.GLYPHS[a.id][1])or ">"
-        text(x+1,y,glyph,T.accent,T.surface)
-        text(x+3,y,clip(a.name,cw-4),T.text,T.surface)
-        local description=K.canTouchApp(a,s)and a.desc or "Open on computer"
-        if ({files=true,music=true,settings=true,devices=true,notifications=true})[a.id]then description=a.desc end
-        text(x+1,y+1,clip(description,cw-2),T.muted,T.surface)
-        hit(x,y,cw,2,function()go(a.id)end)
-      end
-      if #cards==0 then center(gx,top+1,gw,"No tools in this category",T.muted)end
     elseif v.view == "music" then
       local cy = top
       if not compact then

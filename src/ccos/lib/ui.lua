@@ -251,6 +251,10 @@ function ui.run(app)
     term.clear()
     term.setCursorBlink(false)
     app:draw(g)
+    if ccos.isPocket and ccos.isPocket()and g.focus and #g.hits>0 then
+      g.focus=(g.focus-1)%#g.hits+1;local h=g.hits[g.focus]
+      term.setCursorPos(h.x1,h.y1);term.setCursorBlink(true)
+    end
   end
   redraw()
   while not app.quit do
@@ -282,7 +286,14 @@ function ui.run(app)
       end
       if not dirty and app.onScroll then dirty = app:onScroll(ev[2], ev[3], ev[4]) ~= false end
     elseif e == "key" then
-      if app.onKey then dirty = app:onKey(ev[2], ev[3]) ~= false end
+      if ccos.isPocket and ccos.isPocket()and ev[2]==keys.tab then
+        if #g.hits>0 then g.focus=(g.focus or 0)%#g.hits+1 end;dirty=true
+      elseif ccos.isPocket and ccos.isPocket()and ev[2]==keys.enter and g.focus and g.hits[g.focus]then
+        local h=g.hits[g.focus];h.fn(h.x1,h.y1,1);dirty=true
+      else
+        g.focus=nil
+        if app.onKey then dirty = app:onKey(ev[2], ev[3]) ~= false end
+      end
     elseif e == "char" then
       if app.onChar then dirty = app:onChar(ev[2]) ~= false end
     elseif e == "paste" then

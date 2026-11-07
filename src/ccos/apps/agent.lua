@@ -16,7 +16,10 @@ function app:send(text)
 end
 function app:draw(g)
   local touch=ui.touch()
-  local y=act(g,1,{{"Chat",function()self.tab=1 end,self.tab==1},{g.h<12 and "Log"or "Activity",function()self.tab=2 end,self.tab==2},{g.h<12 and "Setup"or "Settings",function()self.tab=3 end,self.tab==3},{A.busy and "Stop"or "New chat",function()if A.busy then A.cancel()else A.clear()end end}})
+  local tabs={{"Chat",function()self.tab=1 end,self.tab==1},{g.w<40 and "Log"or "Activity",function()self.tab=2 end,self.tab==2}}
+  if not(ccos.isPocket and ccos.isPocket())then tabs[#tabs+1]={g.h<12 and "Setup"or "Settings",function()self.tab=3 end,self.tab==3}end
+  tabs[#tabs+1]={A.busy and "Stop"or(g.w<40 and "New"or "New chat"),function()if A.busy then A.cancel()else A.clear()end end}
+  local y=act(g,1,tabs)
   g:text(2,y,ui.trunc(A.status.."  |  "..ccos.config("agentModel"),g.w-2),A.busy and T.accent or T.muted);y=y+2
   if A.pending then
     g:fill(2,y,g.w-2,1,T.raised);g:text(3,y,"Review: "..ui.trunc(A.pending.name,g.w-12),T.warn,T.raised)

@@ -299,7 +299,7 @@ function app:draw(g)
   g:fill(1, ay, w, barH, T.surface)
   local acts = self:actions(e)
   if #acts == 0 then
-    g:text(2, ay + floor((barH - 1) / 2), touch and "Tap a file to choose it, tap again to open" or "Click to choose, double-click to open", T.muted, T.surface)
+    g:text(2, ay + floor((barH - 1) / 2), w<40 and "Enter open | Tab actions"or(touch and "Tap a file to choose it, tap again to open"or "Click to choose, double-click to open"), T.muted, T.surface)
   else
     local bx = 2
     for _, a in ipairs(acts) do

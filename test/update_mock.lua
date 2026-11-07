@@ -14,16 +14,16 @@ return function(ctx)
       local list={}
       for _,rel in ipairs(ctx.files)do
         local body=ctx.read(rel)
-        if rel=="ccos/kernel.lua"then body=body:gsub('local VERSION = "2.1.2"','local VERSION = "2.2"')end
+        if rel=="ccos/kernel.lua"then body=body:gsub('local VERSION = "2.2"','local VERSION = "2.3"')end
         list[#list+1]={path=rel,source=rel=="update.lua"and rel or("src/"..rel),bytes=#body,sha256=ctx.sha.digest(body)}
       end
       if ctx.mode=="corrupt"then list[1].sha256=("0"):rep(64)end
-      response(url,ccos.json.encode({version=ctx.mode=="same"and "2.1.2"or "2.2",files=ccos.json.array(list)}));return true
+      response(url,ccos.json.encode({version=ctx.mode=="same"and "2.2"or "2.3",files=ccos.json.array(list)}));return true
     end
     assert(url:find(pinned,1,true),"Downloads were not pinned to checked commit")
     local rel=path=="update.lua"and path or path:gsub("^src/","")
     local body=ctx.read(rel)
-    if rel=="ccos/kernel.lua"then body=body:gsub('local VERSION = "2.1.2"','local VERSION = "2.2"')end
+    if rel=="ccos/kernel.lua"then body=body:gsub('local VERSION = "2.2"','local VERSION = "2.3"')end
     response(url,body);return true
   end
   function h.calls()return calls end
