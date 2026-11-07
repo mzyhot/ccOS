@@ -94,11 +94,11 @@ function app:draw(g)
     g:text(2, y, ui.pad("Screen", 14) .. ui.pad("Role", 10) .. ui.pad("Size", 10) .. "Scale", T.muted, T.bg)
     for i, s in ipairs(ccos.screens()) do
       g:text(2, y + i, ui.pad(s.name, 14), T.text, T.bg)
-      g:text(16, y + i, ui.pad(s.role, 10), (s.role == "desktop" or s.role == "mirror") and T.accent or T.accent2, T.bg)
+      g:text(16, y + i, ui.pad(s.role, 10), s.role == "picture" and T.accent or T.accent2, T.bg)
       g:text(26, y + i, ui.pad((s.w or 0) .. "x" .. (s.h or 0), 10), T.text, T.bg)
       g:text(36, y + i, s.scale and tostring(s.scale) or "-", T.muted, T.bg)
     end
-    g:text(2, h, "Change roles in Settings, or with the `screen` command.", T.muted, T.bg)
+    g:text(2, h, "Change roles in PC settings > Display, or with `screen`.", T.muted, T.bg)
   end
 end
 

@@ -366,7 +366,7 @@ local function readReal(path)
   f:close()
   return s
 end
-local SOURCE_FILES = { "ccos/apps/about.lua", "ccos/apps/agent.lua", "ccos/apps/calc.lua", "ccos/apps/clock.lua", "ccos/apps/files.lua", "ccos/apps/music.lua", "ccos/apps/notifications.lua", "ccos/apps/piano.lua", "ccos/apps/print.lua", "ccos/apps/settings.lua", "ccos/apps/tasks.lua", "ccos/apps/tools.lua", "ccos/apps/viewer.lua", "ccos/kernel.lua", "ccos/lib/agent.lua", "ccos/lib/audio.lua", "ccos/lib/catalog.lua", "ccos/lib/device.lua", "ccos/lib/encoding.lua", "ccos/lib/gfx.lua", "ccos/lib/input.lua", "ccos/lib/install.lua", "ccos/lib/json.lua", "ccos/lib/mirror.lua", "ccos/lib/picture.lua", "ccos/lib/pocket.lua", "ccos/lib/power.lua", "ccos/lib/sha256.lua", "ccos/lib/startscreen.lua", "ccos/lib/suite.lua", "ccos/lib/time.lua", "ccos/lib/ui.lua", "ccos/lib/updater.lua", "ccos/setup.lua", "ccos/update.lua" }
+local SOURCE_FILES = { "ccos/apps/about.lua", "ccos/apps/agent.lua", "ccos/apps/calc.lua", "ccos/apps/clock.lua", "ccos/apps/files.lua", "ccos/apps/music.lua", "ccos/apps/notifications.lua", "ccos/apps/piano.lua", "ccos/apps/print.lua", "ccos/apps/tasks.lua", "ccos/apps/tools.lua", "ccos/apps/viewer.lua", "ccos/kernel.lua", "ccos/lib/agent.lua", "ccos/lib/audio.lua", "ccos/lib/catalog.lua", "ccos/lib/device.lua", "ccos/lib/encoding.lua", "ccos/lib/gfx.lua", "ccos/lib/input.lua", "ccos/lib/install.lua", "ccos/lib/json.lua", "ccos/lib/picture.lua", "ccos/lib/pocket.lua", "ccos/lib/power.lua", "ccos/lib/sha256.lua", "ccos/lib/startscreen.lua", "ccos/lib/suite.lua", "ccos/lib/time.lua", "ccos/lib/ui.lua", "ccos/lib/updater.lua", "ccos/setup.lua", "ccos/update.lua" }
 for _, rel in ipairs(SOURCE_FILES) do
   local s = readReal(SRC .. "/" .. rel)
   if not s then error("missing " .. rel) end
@@ -797,7 +797,8 @@ attach("top", "modem", makeModem())
 
 ---------------------------------------------------------------- capture
 local SCREENS = { term = computer, main = mainMon, panel = panelMon }
-if pocketScenario then devices.monitor_0=nil;devices.monitor_1=nil end
+local noMonitor=SCENARIO=="term-picture"or SCENARIO=="tools-term"
+if pocketScenario or noMonitor then devices.monitor_0=nil;devices.monitor_1=nil end
 local captures = {}
 
 local function capture(label, which)
@@ -815,10 +816,6 @@ end
 -- Text of a screen, for finding things to tap.
 local function findText(key, text, nth, fromBottom)
   local t = SCREENS[key]._t
-  local mirrored=false
-  if key=="main"and ccos then for _,sc in ipairs(ccos.screens())do if sc.name=="monitor_0"and sc.role=="mirror"then mirrored=true end end end
-  local display=t
-  if mirrored then t=computer._t end
   local n = 0
   for y = fromBottom and t.h or 1, fromBottom and 1 or t.h, fromBottom and -1 or 1 do
     local from = 1
@@ -826,35 +823,10 @@ local function findText(key, text, nth, fromBottom)
       local x = t.text[y]:find(text, from, true)
       if not x then break end
       n = n + 1
-      if n == (nth or 1) then
-        if mirrored then
-          local xx=floor((math.ceil((x-1)*display.w/t.w)+1+math.ceil(x*display.w/t.w))/2)
-          local yy=floor((math.ceil((y-1)*display.h/t.h)+1+math.ceil(y*display.h/t.h))/2)
-          return xx,yy
-        end
-        return x,y
-      end
+      if n == (nth or 1) then return x, y end
       from = x + 1
     end
   end
-end
-
--- Verify the entire physical monitor against the desktop transform, including
--- its first/last columns (the old centred mirror left wallpaper there).
-local function stretched(why)
-  local m,t=mainMon._t,computer._t
-  for y=1,m.h do
-    local sy=floor((y-1)*t.h/m.h)+1
-    for x=1,m.w do
-      local sx=floor((x-1)*t.w/m.w)+1
-      if m.bgs[y]:sub(x,x)~=t.bgs[sy]:sub(sx,sx)then fail("Full Sync background mismatch: "..why.." at "..x..","..y.." monitor="..m.w.."x"..m.h.." desktop="..t.w.."x"..t.h.." got="..m.bgs[y]:sub(x,x).." want="..t.bgs[sy]:sub(sx,sx));return end
-    end
-  end
-  for sy=1,t.h do for sx=1,t.w do
-    local x=floor((math.ceil((sx-1)*m.w/t.w)+1+math.ceil(sx*m.w/t.w))/2)
-    local y=floor((math.ceil((sy-1)*m.h/t.h)+1+math.ceil(sy*m.h/t.h))/2)
-    if m.w>=t.w and m.h>=t.h and m.text[y]:sub(x,x)~=t.text[sy]:sub(sx,sx)then fail("Full Sync glyph mismatch: "..why);return end
-  end end
 end
 
 local function tap(key, text, opts)
@@ -906,120 +878,83 @@ local T0 = 0
 local script = {}
 local function step(dt, fn) script[#script + 1] = { dt = dt, fn = fn } end
 
-if SCENARIO=="desktop-menu"or SCENARIO=="tools-desktop"or SCENARIO=="tool-logic"or SCENARIO:match("^agent")then
-  writeFile("ccos/config.cfg",'{["screenLayout"]=2,["fullSync"]=true,["autoUpdates"]=false}')
+if SCENARIO=="term-picture"or SCENARIO=="tools-term"or SCENARIO=="tool-logic"or SCENARIO:match("^agent")then
+  writeFile("ccos/config.cfg",'{["screenLayout"]=3,["autoUpdates"]=false,["idle"]=0}')
 end
-if SCENARIO == "home" then
-  -- this run tests the big monitor as its own widescreen desktop
-  writeFile("ccos/config.cfg", '{["screenLayout"]=2,["screens"]={["monitor_0"]={["role"]="desktop"}}}')
-  step(20, function() capture("Boot splash") end)
-  step(80, function() capture("Desktop") end)
-  step(2, expect("main", "Files", "desktop icon"))
-  step(2, expect("panel", ":", "panel clock"))
-  -- Files on the big monitor
-  step(2, tap("main", "Files"))
-  step(10, function() capture("Files", { "main" }) end)
-  step(2, tap("main", "music/", {}))
-  step(4, tap("main", "music/", {}))
-  step(10, function() capture("Files: music", { "main" }) end)
-  step(2, tap("main", "ccOS Theme"))
-  step(4, tap("main", "Play"))
-  step(30, function() capture("Playing", { "main", "panel" }) end)
-  step(2, expect("panel", "ccOS Theme", "now playing on the panel"))
-  -- Start menu and Music
-  step(2, tapXY("main", 3, -2))
-  step(6, function() capture("Start menu", { "main" }) end)
-  step(2, tap("main", "Stereo player", { bottom = true }))
-  step(20, function() capture("Music", { "main" }) end)
-  step(2, tap("main", "Chord"))
-  step(30, function() capture("Music: WAV", { "main", "panel" }) end)
-  step(2, tap("main", "Duet"))
-  step(30, function() capture("Music: stereo pair", { "main" }) end)
-  -- snap via the window menu
-  step(2, tap("main", "\4", { nth = 2 }))
-  step(4, function() capture("Window menu", { "main" }) end)
-  step(2, tap("main", "Snap right"))
-  step(6, function() capture("Snapped", { "main" }) end)
-  -- Command palette on the computer
-  step(2, alt("space"))
-  step(4, typeText("help"))
-  step(4, keyPress("enter"))
-  step(10, function() capture("Palette help", { "term" }) end)
-  step(2, expect("term", "Enter run", "palette on the computer"))
-  step(2, typeText("banner HI"))
-  step(2, keyPress("enter"))
-  step(20, function() capture("Palette banner", { "term" }) end)
-  step(2, alt("space"))
-  -- Terminal with ccOS commands
-  step(2, alt("t"))
-  step(10, typeText("np"))
-  step(2, keyPress("enter"))
-  step(10, typeText("screens"))
-  step(2, keyPress("enter"))
-  step(10, typeText("theme sunset"))
-  step(2, keyPress("enter"))
-  step(20, function() capture("Terminal commands", { "term", "main" }) end)
-  step(2, typeText("theme ccos"))
-  step(2, keyPress("enter"))
-  -- drag the terminal window by its title
-  step(4, function()
-    local x, y = findText("term", "Terminal")
-    if x then push("mouse_click", 1, x + 2, y); push("mouse_drag", 1, x + 6, y + 2); push("mouse_up", 1, x + 6, y + 2) end
+if SCENARIO == "monitor-hotplug" then
+  writeFile("ccos/config.cfg",'{["screenLayout"]=3,["autoUpdates"]=false,["idle"]=0,["screens"]={["monitor_1"]={["role"]="panel"}}}')
+  -- Unplugging the Big Picture monitor moves Big Picture (and its open
+  -- app and prompts) to the computer; plugging it back makes the computer
+  -- the keyboard again.
+  step(100,function()
+    if ccos.pictureScreenName()~="monitor_0"then fail("Monitor did not start in Big Picture")end
+    expect("term","ccOS keyboard","computer is the monitor's keyboard")()
+    ccos.launch("dice",{},"monitor_0")
   end)
-  -- more apps on the monitor
-  for _, name in ipairs({ "Clock", "Calculator", "Piano", "Tasks", "Print Center", "Settings" }) do
-    step(4, tapXY("main", 3, -2))
-    step(4, tap("main", name, { bottom = true }))
-    step(20, function() capture(name, { "main" }) end)
-  end
-  step(2, tap("main", "Sound"))
-  step(6, function() capture("Settings: sound", { "main" }) end)
-  step(2, tap("main", "Screens"))
-  step(6, function() capture("Settings: screens", { "main" }) end)
-  -- disk out and back
-  step(2, function() drive.ejectDisk() end)
-  step(10, function() capture("Disk ejected", { "main" }) end)
-  step(2, function()
-    drive.present, drive.label, drive.mount, drive.audio = true, nil, nil, "C418 - cat"
-    push("disk", "drive_0")
+  step(8,function()expect("main","Roll","dice on the monitor")();detach("monitor_0")end)
+  step(10,function()
+    if ccos.pictureScreenName()~="term"then fail("Big Picture did not move to the computer")end
+    if ccos.pictureView()~="dice"then fail("Open app did not follow to the computer: "..tostring(ccos.pictureView()))end
+    expect("term","Roll","app moved with Big Picture")();capture("Unplugged: Big Picture on the computer",{"term"})
   end)
-  step(20, function() capture("Music disc", { "main", "panel" }) end)
-  -- panel pages
-  step(2, tap("panel", "\183", {}))
-  step(4, function() capture("Panel next", { "panel" }) end)
-  -- screen saver: no input for a while
-  step(2, function() push("monitor_touch", "monitor_1", 50, 9) end)
-  step(2, function() capture("End", { "main", "panel", "term" }) end)
-  step(2, function() push("char", "x") end)
-  step(4, alt("space"))
-  step(2, typeText("exit"))
-  step(2, keyPress("enter"))
-elseif SCENARIO == "picture" or SCENARIO == "picture-small" or SCENARIO == "picture-compact" or SCENARIO == "picture-upgrade" then
-  if SCENARIO == "picture-small"or SCENARIO == "picture-compact"then
+  step(2,keyPress("f2"));step(4,function()if ccos.pictureView()~="home"then fail("F2 did not return the computer to Start")end;capture("Computer Start after unplug",{"term"})end)
+  step(2,function()attach("monitor_0","monitor",mainMon);push("peripheral","monitor_0")end)
+  step(10,function()
+    if ccos.pictureScreenName()~="monitor_0"then fail("Reattached monitor did not resume Big Picture")end
+    expect("term","ccOS keyboard","computer is the keyboard again")()
+    capture("Monitor reattached",{"main","term"});ccos.exit()
+  end)
+elseif SCENARIO == "picture" or SCENARIO == "picture-small" or SCENARIO == "picture-compact" or SCENARIO == "picture-upgrade" or SCENARIO == "picture-scale" then
+  if SCENARIO=="picture-scale"then
+    writeFile("ccos/config.cfg", '{["screenLayout"]=2,["screens"]={["monitor_0"]={["role"]="picture",["scale"]=1},["monitor_1"]={["role"]="panel"}}}')
+  elseif SCENARIO == "picture-small"or SCENARIO == "picture-compact"then
     writeFile("ccos/config.cfg", '{["screenLayout"]=2,["screens"]={["monitor_0"]={["role"]="picture"},["monitor_1"]={["role"]="panel"}}}')
     mainMon=SCENARIO=="picture-small"and makeMonitor(4,3,true)or makeMonitor(2,1,true);attach("monitor_0","monitor",mainMon);SCREENS.main=mainMon
-  elseif SCENARIO=="picture-upgrade"then writeFile("aurora/config.cfg",'{["user"]="Legacy",["theme"]="aurora",["screens"]={["monitor_0"]={["role"]="mirror"}}}')end
+  elseif SCENARIO=="picture-upgrade"then writeFile("aurora/config.cfg",'{["user"]="Legacy",["theme"]="aurora",["fullSync"]=true,["screens"]={["monitor_0"]={["role"]="mirror"}}}')end
   local function noTyping()
     for _,word in ipairs({"BIG SCREEN","Big Screen","Ask ccOS...","Type to search","Enter text"})do if findText("main",word)then fail("unwanted monitor element: "..word)end end
     if mainMon._t.blink then fail("monitor typing cursor")end
   end
-  local function category(name)
-    for _=1,12 do step(3,function()local row=mainMon._t.text[4];if not row or not row:find(name,1,true)then tap("main","Cat >")()end end)end
+  -- Pan Start (or Apps) with the scrollbar arrow until a tile label shows.
+  local function startTile(label)
+    for _=1,12 do step(3,function()if not findText("main",label)then tap("main","\16",{bottom=true})()end end)end
+    step(3,tap("main",label))
   end
-  local function home()step(3,tap("main","< Tools"));step(4,noTyping)end
-  step(100,function()capture("ccOS compact monitor");noTyping()end)
-  step(2,expect("main","ccOS","renamed OS"))
-  if SCENARIO~="picture-compact"then
+  local function home()step(3,keyPress("f2"));step(4,function()noTyping();if ccos.pictureView and ccos.pictureView()~="home"then fail("F2 did not return to Start")end end)end
+  local function noOverflow()
+    -- Start tiles must never overlap the header or the scrollbar row.
+    local t=mainMon._t
+    local from=(t.text[t.h]:find("\17",1,true)or 0)+1
+    for x=from,t.w do local c=t.text[t.h]:byte(x);if c>=128 and c<=159 and c~=140 then fail("graphic in scrollbar row at "..x)end end
+  end
+  step(100,function()capture("ccOS Start");noTyping();noOverflow()end)
+  step(2,function()if ccos.pictureView()~="home"or not findText("main","Files")then fail("Start did not show its pinned tiles")end end)
+  if SCENARIO~="picture-compact"and SCENARIO~="picture-scale"then
     step(2,expect("main","AI Agent","agent favorite"))
+    step(2,function()expect("main",ccos.config("user"),"account name")()end)
     step(2,tap("main","Music"));step(8,tap("main","Mixtape Song"));step(10,expect("main","Pause","shared audio"));step(2,function()capture("ccOS music",{"main"});noTyping()end);home()
-    category("Time");step(3,tap("main","World clocks"));step(8,expect("main","America/Chicago","world clocks"));step(2,function()capture("ccOS world clocks",{"main"});noTyping()end);home()
-    category("Math");step(3,tap("main","Unit converter"));step(8,expect("main","From m","unit conversion"));step(2,tap("main","+1"));step(2,function()capture("ccOS units",{"main"});noTyping()end);home()
-    category("System");step(3,tap("main","Redstone"));step(8,tap("main","Turn on"));step(4,function()if not redstone.getOutput("left")then fail("redstone touch control failed")end;capture("ccOS redstone",{"main"})end);home()
-    category("AI");step(3,tap("main","AI Agent"));step(8,expect("main","Inspect system","agent touch actions"));step(2,function()capture("ccOS agent monitor",{"main"});noTyping()end);home()
-    category("Favorites");step(3,tap("main","Settings"));step(8,expect("main","Time zone:","zone settings"));step(2,tap("main","24-hour clock:"));step(4,function()capture("ccOS monitor settings",{"main"});noTyping()end);home()
+    step(2,function()capture("ccOS Start live tiles",{"main"})end)
+    startTile("World time");step(8,expect("main","America/Chicago","world clocks"));step(2,function()capture("ccOS world clocks",{"main"});noTyping()end);home()
+    startTile("Units");step(8,expect("main","From m","unit conversion"));step(2,tap("main","+1"));step(2,function()capture("ccOS units",{"main"});noTyping()end);home()
+    startTile("Redstone");step(8,tap("main","Turn on"));step(4,function()if not redstone.getOutput("left")then fail("redstone touch control failed")end;capture("ccOS redstone",{"main"})end);home()
+    step(3,tap("main","AI Agent"));step(8,expect("main","Inspect system","agent touch actions"));step(2,function()capture("ccOS agent monitor",{"main"});noTyping()end)
+    step(2,tap("main","\27"));step(4,function()if ccos.pictureView()~="home"then fail("title bar back did not return to Start")end end)
+    step(3,tap("main","Settings"));step(6,tap("main","Time and language"));step(6,expect("main","Time zone","zone settings"));step(2,tap("main","24-hour clock"))
+    step(4,function()if not ccos.config("clock24")then fail("settings toggle did not apply")end;capture("ccOS monitor settings",{"main"});noTyping()end)
+    step(2,tap("main","Personalize"));step(4,tap("main","Start colour"));step(4,function()if ccos.config("startColor")=="purple"then fail("Start colour did not change")end;capture("ccOS personalize",{"main"})end);home()
+    -- Apps by category through the search mark; every catalog entry has a name there.
+    step(2,function()ccos.pictureView("apps")end);step(4,expect("main","by category","apps view"))
+    step(2,function()capture("ccOS apps",{"main"})end)
+    startTile("Dice");step(6,tap("main","Roll"));step(4,function()capture("ccOS dice",{"main"})end);home()
+    step(2,function()ccos.pictureView("files")end);step(6,expect("main","ccos","file list"));step(2,function()capture("ccOS files",{"main"})end);home()
+    step(2,function()ccos.pictureView("power")end);step(4,tap("main","Shut down"));step(4,expect("main","unsaved work is lost","power band"));step(2,function()capture("ccOS power",{"main"})end);step(2,tap("main","Cancel"));home()
   else
-    step(3,tap("main","Files"));step(6,expect("main","+ ccos/","compact file list"));home()
-    category("Games");step(3,function()if not findText("main","Dice")then tap("main","Next >")()end end);step(3,tap("main","Dice"));step(6,tap("main","Roll"));step(4,function()capture("ccOS compact dice",{"main"});noTyping()end);home()
+    startTile("Files");step(6,expect("main","ccos","compact file list"));home()
+    step(2,function()ccos.pictureView("apps")end);startTile("Dice");step(6,tap("main","Roll"));step(4,function()capture("ccOS compact dice",{"main"});noTyping()end);home()
+    for _,view in ipairs({"apps","music","settings","files","power"})do
+      step(2,function()ccos.pictureView(view)end);step(4,function()if ccos.pictureView()~=view then fail("view "..view.." did not open")end;capture("ccOS compact "..view,{"main"});noTyping()end)
+    end
+    home()
   end
   step(2,alt("a"));step(10,expect("term","Message AI Agent","computer input bridge"));step(2,noTyping)
   step(2,function()ccos.exit()end)
@@ -1061,34 +996,32 @@ elseif SCENARIO=="power-animation"or SCENARIO=="pocket-power"then
   step(3,function()capture("Shutting down - frame one",{"term"});expect("term","Shutting down","power transition visible")()end)
   step(8,function()capture("Shutting down - frame two",{"term"})end)
 
-elseif SCENARIO=="desktop-polish"then
-  writeFile("ccos/config.cfg",textutils.serialize({screenLayout=2,fullSync=true,autoUpdates=false,timezone="fixed",utcOffset=-720,clock24=false,idle=0}))
-  step(100,function()
-    stretched("polished desktop")
+elseif SCENARIO=="monitor-keyboard"then
+  writeFile("ccos/config.cfg",textutils.serialize({screenLayout=3,autoUpdates=false,timezone="fixed",utcOffset=-720,clock24=false,idle=0}))
+  step(25,function()capture("Boot splash",{"main","term"})end)
+  step(75,function()
     local found=false;for _,line in ipairs(panelMon._t.text)do if line:match("^%s*AM%s*$")then found=true end end;if not found then fail("Panel has no native AM label")end
-    -- The Start mark is symmetric about the centre of the 5-cell button.
-    local t=computer._t;local pixels={}
-    for x=1,5 do
-      local code=t.text[t.h]:byte(x)-128;local fg=t.fgs[t.h]:sub(x,x);local bg=t.bgs[t.h]:sub(x,x)
-      for py=1,3 do for px=1,2 do local bit=(py-1)*2+px-1;local on=bit<5 and floor(code/2^bit)%2==1;pixels[(py-1)*10+(x-1)*2+px]=on and fg or bg end end
-    end
-    for y=1,3 do for x=1,10 do if pixels[(y-1)*10+x]~=pixels[(y-1)*10+11-x]then fail("Start mark not horizontally centred")end end end
-    for x=1,10 do if pixels[x]~=pixels[20+x]then fail("Start mark not vertically centred")end end
-    capture("Polished Full Sync desktop")
+    capture("Keyboard console",{"term"});ccos.launch("terminal",{},"monitor_0")
   end)
-  step(2,alt("s"));step(5,expect("term","Big Picture","dedicated Start mode action"))
-  step(2,function()capture("Start mode action",{"term","main"})end)
-  step(2,keyPress("escape"));step(3,function()if findText("term","Big Picture")then fail("Escape did not close Start")end end)
-  step(2,alt("s"));step(4,tap("main","Big Picture"))
-  step(8,function()
-    if ccos.pictureScreenName()~="monitor_0"or ccos.config("fullSync")then fail("Start did not switch the OS into Big Picture")end
-    if not findText("term","Monitor input")or not findText("main","Favorites")then fail("Big Picture did not show its home/input console")end
-    capture("Big Picture from Start")
+  -- The terminal runs full screen on the monitor; the computer types into it.
+  step(10,function()expect("term","go to Terminal","console names the app in front")();typeText("echo keyboard-bridge")()end)
+  step(2,keyPress("enter"))
+  step(10,function()
+    if not findText("main","keyboard-bridge")or not findText("main","No such program")then fail("Typed command did not run on the monitor")end
+    if not mainMon._t.blink then fail("Monitor terminal shows no cursor")end
+    capture("Terminal on the monitor",{"main","term"})
   end)
-  step(2,tap("term","Full Sync"));step(8,function()stretched("return from Big Picture");ccos.config("timezone","fixed");ccos.config("utcOffset",0)end)
+  step(2,keyPress("f2"));step(4,function()if ccos.pictureView()~="home"then fail("F2 did not return to Start")end;if mainMon._t.blink then fail("Cursor left on Start")end end)
+  -- Typing on Start searches apps, like 8.1; Enter opens the top result.
+  step(2,typeText("dic"));step(4,function()if ccos.pictureView()~="apps"then fail("Typing on Start did not open search")end;expect("main","Dice","search result")();capture("Start search",{"main","term"})end)
+  step(2,keyPress("enter"));step(8,expect("main","Roll","top result opened"))
+  step(2,keyPress("f2"))
+  -- Terminal is single instance: opening it again brings back its output.
+  step(4,function()ccos.launch("terminal",{},"monitor_0")end)
+  step(6,function()if not findText("main","keyboard-bridge")then fail("Reopening Terminal lost its session")end;ccos.config("timezone","fixed");ccos.config("utcOffset",0)end)
   step(25,function()local found=false;for _,line in ipairs(panelMon._t.text)do if line:match("^%s*PM%s*$")then found=true end end;if not found then fail("Panel has no native PM label")end;capture("Clear PM panel",{"panel"});ccos.exit()end)
 elseif SCENARIO=="sync-input"then
-  step(100,function()capture("Big Picture input console");if findText("term","Terminal")then fail("Desktop leaked into input console")end;ccos.launch("notes",{},"monitor_0")end)
+  step(100,function()capture("Big Picture keyboard console");if not findText("term","ccOS keyboard")then fail("Computer is not the keyboard console")end;ccos.launch("notes",{},"monitor_0")end)
   step(8,tap("main","New"))
   step(5,expect("term","Note name","monitor prompt bridges to computer"))
   step(2,function()for _=1,#"note.txt"do keyPress("backspace")()end;typeText("bridge.txt")()end);step(2,keyPress("enter"))
@@ -1097,15 +1030,13 @@ elseif SCENARIO=="sync-input"then
   step(4,expect("main","Typed on the computer","prompt preview stays in step"))
   step(2,function()capture("Bridged text prompt");tap("main","OK")()end)
   step(8,function()local n=node("notes/bridge.txt");if not n or n.data~="Typed on the computer"then fail("Bridged note not saved")end;ccos.launch("settings",{},"monitor_0")end)
-  step(5,tap("main","Full Sync with desktop"))
-  step(8,function()
-    local roles=ccos.screens();if roles[2].role~="mirror"then fail("Full Sync did not select mirror")end
-    stretched("mode switch")
-    local cfg=textutils.unserialize(node("ccos/config.cfg").data);if not cfg.fullSync then fail("Full Sync not persisted")end
-    capture("Full Sync desktop")
-    ccos.setFullSync(false)
+  step(5,tap("main","Display"));step(4,expect("main","monitor_1 shows","display roles"))
+  step(2,tap("main","monitor_1 shows"));step(8,function()
+    local roles=ccos.screens();if roles[3].role~="off"then fail("Display role did not cycle: "..tostring(roles[3].role))end
+    capture("PC settings display")
   end)
-  step(8,expect("term","Monitor input","returning to Big Picture removes desktop"))
+  step(2,tap("main","monitor_1 shows"));step(8,function()if ccos.screens()[3].role~="picture"then fail("Second monitor did not become Big Picture")end;ccos.setScreen("monitor_1","panel")end)
+  step(8,expect("term","ccOS keyboard","computer stays the keyboard"))
   step(2,function()ccos.exit()end)
 elseif SCENARIO=="input-agent"then
   http=assert(realLoad(readReal("agent_mock.lua")))()({scenario="agent-malformed",push=push,after=function(dt,fn)at(tick+dt,fn)end})
@@ -1135,8 +1066,7 @@ elseif SCENARIO=="agent-unicode"or SCENARIO=="agent-unicode-tools"then
       if ccos.agent.status~="Done"then fail("Unicode reply failed")end
       if ccos.agent.messages[2].text~="“Café” — ready… ✅ 🚀"then fail("Unicode response data was changed")end
       if ccos.agent.conversation[2].content~="“Café” — ready… ✅ 🚀"then fail("Conversation history lost Unicode")end
-      if not findText("term",'"Caf'..string.char(233)..'" -- ready... [OK] ?')then fail("Agent Unicode reply did not render as terminal text")end
-      capture("Unicode-safe AI reply",{"term"});ccos.setFullSync(false);ccos.launch("agent",{},"monitor_0")
+      capture("Unicode-safe AI reply",{"main"});ccos.launch("agent",{},"monitor_0")
     end)
     step(8,function()
       if not findText("main",'"Caf'..string.char(233)..'" -- ready... [OK] ?')then fail("Monitor reply still displays UTF-8 bytes")end
@@ -1156,13 +1086,13 @@ elseif SCENARIO=="agent-models"then
 elseif SCENARIO=="update-standalone"then
   writeFile("ccos/config.cfg",textutils.serialize({screenLayout=2,user="Preserved",autoUpdates=false}))
   writeFile("ccos/private/openrouter.cfg","sk-or-preserved")
-  local bundled=readReal(SRC.."/../setup.lua"):gsub('local VERSION = "2.2"','local VERSION = "2.3"')
+  local bundled=readReal(SRC.."/../setup.lua"):gsub('local VERSION = "3.0"','local VERSION = "3.1"')
   http={get=function(opts)
     assert(opts.url=="https://raw.githubusercontent.com/mzyhot/ccOS/main/setup.lua")
     return {read=function(n)return bundled:sub(1,n)end,close=function()end}
   end}
   step(100,function()
-    if not ccos or ccos.version~="2.3"then fail("Standalone updater did not restart into new version")end
+    if not ccos or ccos.version~="3.1"then fail("Standalone updater did not restart into new version")end
     if ccos.config("user")~="Preserved"or node("ccos/private/openrouter.cfg").data~="sk-or-preserved"or not node("notes/todo.txt")then fail("Standalone update lost user data")end
     if node("startup.before-ccos.lua")then fail("Standalone update ran setup wizard")end
     ccos.exit()
@@ -1191,19 +1121,19 @@ elseif SCENARIO:match("^updates%-")then
     elseif mode=="later"then tap("main","Later")()else tap("main","Update & restart")()end
   end)
   if mode=="later"then
-    step(5,function()if ccos.version~="2.2"then fail("Declined update changed version")end;ccos.exit()end)
+    step(5,function()if ccos.version~="3.0"then fail("Declined update changed version")end;ccos.exit()end)
   elseif mode=="rollback"then
     step(500,function()
-      if node("ccos/kernel.lua").data~=oldKernel or ccos.version~="2.2"then fail("Failed update did not roll back")end
+      if node("ccos/kernel.lua").data~=oldKernel or ccos.version~="3.0"then fail("Failed update did not roll back")end
       if not ccos.updates.status:find("rolled back",1,true)then fail("Update rollback not reported")end
       for _,name in ipairs(fs.list("/"))do if name:find(".ccos-stage-",1,true)then fail("Update left staging files")end end
       ccos.exit()
     end)
   elseif mode=="corrupt"then
-    step(200,function()if ccos.version~="2.2"or not node("ccos/kernel.lua").data:find('local VERSION = "2.2"',1,true)then fail("Corrupt update changed code")end;if not ccos.updates.status:find("Checksum mismatch",1,true)then fail("Corruption not reported")end;ccos.exit()end)
+    step(200,function()if ccos.version~="3.0"or not node("ccos/kernel.lua").data:find('local VERSION = "3.0"',1,true)then fail("Corrupt update changed code")end;if not ccos.updates.status:find("Checksum mismatch",1,true)then fail("Corruption not reported")end;ccos.exit()end)
   elseif mode=="auto"or mode=="install"or mode=="pocket"then
     step(500,function()
-      if ccos.version~="2.3"then fail("Verified update did not restart into new OS")end
+      if ccos.version~="3.1"then fail("Verified update did not restart into new OS")end
       if ccos.config("user")~="Preserved"or ccos.config("timezone")~="Asia/Kolkata"then fail("Update changed preferences")end
       if node("ccos/private/openrouter.cfg").data~="sk-or-update-preserved"or not node("notes/todo.txt")then fail("Update changed data/key")end
       capture("Updated OS after restart");ccos.exit()
@@ -1263,12 +1193,12 @@ elseif SCENARIO=="agent"or SCENARIO=="agent-error"or SCENARIO=="agent-malformed"
     end)
   end
   step(2,function()ccos.exit()end)
-elseif SCENARIO == "tools-desktop"or SCENARIO == "tools-monitor"then
+elseif SCENARIO == "tools-term"or SCENARIO == "tools-monitor"then
   local toolCatalog=assert(realLoad(readReal(SRC.."/ccos/lib/catalog.lua")))()
-  step(100,function()capture("ccOS desktop",{"term"})end)
+  step(100,function()capture("ccOS Start",{SCENARIO=="tools-monitor"and "main"or "term"})end)
   for _,def in ipairs(toolCatalog.apps())do
     local id,title=def.id,def.name
-    if SCENARIO=="tools-desktop"or def.touch then
+    if def.touch then
       step(2,function()ccos.launch(id,{},SCENARIO=="tools-monitor"and "monitor_0"or "term")end)
       step(6,function()
         local screen=SCENARIO=="tools-monitor"and "main"or "term"
@@ -1280,61 +1210,42 @@ elseif SCENARIO == "tools-desktop"or SCENARIO == "tools-monitor"then
     end
   end
   step(2,function()ccos.exit()end)
-elseif SCENARIO == "desktop-menu" then
-  step(100, function() capture("Computer desktop", { "term" }) end)
-  step(2, alt("s"))
-  step(5, expect("term", "Files", "start menu"))
-  step(2, tap("term", "Files"))
-  step(10, expect("term", "Files - /", "start menu app click"))
-  step(2, alt("s"))
-  step(5, tap("term", "Next >"))
-  step(5, expect("term", "Editor", "start menu pagination reaches later apps"))
-  step(2, function() capture("Computer start menu page 2", { "term" }) end)
-  step(2, tap("term", "Settings", { bottom = true }))
-  step(10, expect("term", "Appearance", "settings opened"))
-  step(2, tapXY("term", 50, 2))
-  step(5, expect("term", "Sound", "section navigation"))
-  step(2, tapXY("term", 50, 2))
-  step(5, expect("term", "Screens", "screen section"))
-  step(2, expect("term", "Role", "role action fits computer width"))
-  step(2, expect("term", "Scale -", "scale action fits computer width"))
-  step(2, expect("term", "Auto", "auto scale action fits computer width"))
-  step(2, function() capture("Computer screen settings", { "term" }) end)
-  step(2, alt("space"))
-  step(2, typeText("exit"))
-  step(2, keyPress("enter"))
-elseif SCENARIO == "mirror"or SCENARIO=="mirror-resize"then
-  writeFile("ccos/config.cfg", '{["screenLayout"]=2,["screens"]={["monitor_0"]={["role"]="mirror"}}}')
-  local function sameAsComputer(why)return function()stretched(why)end end
-  step(30, function() capture("Mirror: booting", { "main" }) end)
-  step(80, function() capture("Mirror: desktop", { "main", "term" }) end)
-  step(2, sameAsComputer("desktop"))
-  step(2, function()
-    local m, t = mainMon._t, computer._t
-    push("monitor_touch","monitor_0",math.ceil(2*m.w/t.w),m.h)
+elseif SCENARIO == "term-picture" then
+  -- No monitor: the computer runs Big Picture with mouse and keyboard.
+  step(25,function()capture("Boot splash",{"term"})end)
+  step(75,function()
+    if ccos.pictureScreenName()~="term"or ccos.pictureView()~="home"then fail("Computer did not start Big Picture")end
+    expect("term","Files","Start tiles on the computer")();capture("Computer Start",{"term"})
   end)
-  step(6, function() capture("Mirror: start menu by touch", { "main" }) end)
-  step(2, expect("term", "Type to search", "start menu opened on the computer by a tap on the monitor"))
-  step(2, sameAsComputer("start menu"))
-  step(2, tap("main", "Files", { bottom = true }))
-  step(20, function() capture("Mirror: Files by touch", { "main", "term" }) end)
-  step(2, expect("term", "Files - /", "Files opened on the computer"))
-  step(2, tap("main", "music/"))
-  step(2, tap("main", "music/"))
-  step(10, function() capture("Mirror folder result", { "term" }); expect("term", "Chord.wav", "two taps opened a folder")() end)
-  step(2, alt("t"))
-  step(10, typeText("np"))
-  step(2, keyPress("enter"))
-  step(10, function() capture("Mirror: typing on the computer", { "main" }) end)
-  step(2, sameAsComputer("terminal"))
-  if SCENARIO=="mirror-resize"then
-    step(2,function()mainMon.setBlocks(4,4)end)
-    step(8,function()stretched("monitor resized");capture("Full Sync resized",{"main","term"})end)
-    step(2,alt("s"));step(5,tap("main","Big Picture"))
-    step(8,expect("term","Monitor input","resized monitor mode action maps to Start"))
-    step(2,function()ccos.exit()end)
-  end
-  if SCENARIO~="mirror-resize"then step(2,alt("space"));step(2,typeText("exit"));step(2,keyPress("enter"))end
+  step(2,tap("term","Files"));step(6,expect("term","ccos","file list by mouse"))
+  step(2,function()capture("Computer Files",{"term"})end)
+  step(2,keyPress("backspace"));step(4,function()if ccos.pictureView()~="home"then fail("Backspace did not leave Files")end end)
+  -- Type to search, Enter opens the terminal full screen; keys reach it.
+  step(2,typeText("term"));step(4,expect("term","\"term\"","search view"))
+  step(2,function()capture("Computer search",{"term"})end)
+  step(2,keyPress("enter"));step(10,function()expect("term","Terminal","terminal title bar")();typeText("echo typed-here")()end)
+  step(2,keyPress("enter"))
+  step(10,function()if not findText("term","typed-here")or not findText("term","No such program")then fail("Keys did not reach the terminal")end;if not computer._t.blink then fail("No terminal cursor")end;capture("Computer terminal",{"term"})end)
+  step(2,keyPress("f2"));step(4,function()if ccos.pictureView()~="home"then fail("F2 did not return to Start")end end)
+  step(2,function()ccos.pictureView("settings")end);step(6,expect("term","Personalize","PC settings on the computer"))
+  step(2,tap("term","Personalize"));step(4,tap("term","Accent colour"))
+  step(4,function()if ccos.config("accentColor")=="teal"then fail("Accent colour did not change")end;capture("Computer PC settings",{"term"})end)
+  step(2,function()ccos.pictureView("power")end);step(4,tap("term","Exit"))
+  step(4,expect("term","Exit to CraftOS?","exit confirmation band"));step(2,tap("term","Cancel"))
+  step(4,function()ccos.exit()end)
+elseif SCENARIO=="legacy-roles"then
+  -- Configurations from the desktop era migrate to Big Picture.
+  writeFile("ccos/config.cfg",'{["screenLayout"]=2,["fullSync"]=true,["theme"]="sunset",["screens"]={["monitor_0"]={["role"]="mirror"},["monitor_1"]={["role"]="desktop"}}}')
+  step(100,function()
+    local roles={};for _,sc in ipairs(ccos.screens())do roles[sc.name]=sc.role end
+    if roles.monitor_0~="picture"or roles.monitor_1~="picture"or roles.term~="console"then fail("Legacy roles not migrated: "..tostring(roles.monitor_0).."/"..tostring(roles.monitor_1).."/"..tostring(roles.term))end
+    local cfg=textutils.unserialize(node("ccos/config.cfg").data)
+    if cfg.fullSync~=nil or cfg.screens.monitor_0.role~="picture"then fail("Migrated config not saved")end
+    if ccos.pictureScreenName()~="monitor_0"then fail("Largest monitor is not the Big Picture screen")end
+    capture("Migrated screens")
+    mainMon.setBlocks(4,4)
+  end)
+  step(10,function()if ccos.pictureView()~="home"then fail("Resize lost Start")end;capture("Resized monitor",{"main"});ccos.exit()end)
 elseif SCENARIO=="setup-rollback"or SCENARIO=="setup-no-space"then
   writeFile("setup.lua",readReal(SRC.."/../setup.lua"))
   writeFile("ccos/kernel.lua","-- previous kernel")
@@ -1361,7 +1272,7 @@ elseif SCENARIO=="install"or SCENARIO=="setup"or SCENARIO=="setup-offline"or SCE
   enter("3")
   enter("12")
   enter("n")
-  enter("midnight")
+  enter("blue")
   if SCENARIO=="setup-offline"or SCENARIO=="setup-reinstall"or pocketScenario then enter("n")else enter("y");enter("sk-or-setup-test-key")end
   enter("test/tool-model")
   enter("y")
@@ -1373,6 +1284,7 @@ elseif SCENARIO=="install"or SCENARIO=="setup"or SCENARIO=="setup-offline"or SCE
     for _,rel in ipairs(SOURCE_FILES)do local n=node(rel);if not n or n.data~=readReal(SRC.."/"..rel)then fail("Installed source differs: "..rel)end end
     local h=fs.open("ccos/config.cfg","r");local cfg=textutils.unserialize(h.readAll());h.close()
     if not cfg.setupComplete or cfg.user~="Finn"or cfg.timezone~="America/Chicago"or cfg.clock24~=false or cfg.leadingZero~=false then fail("Wizard preferences were not saved")end
+    if cfg.startColor~="blue"or cfg.theme~=nil then fail("Wizard Start colour not saved")end
     if not node("startup.before-ccos.lua")then fail("Old startup was not preserved")end
     if not node("startup.lua").data:find("ccos/kernel.lua",1,true)then fail("Startup does not boot ccOS")end
     local key=node("ccos/private/openrouter.cfg")
@@ -1382,21 +1294,6 @@ elseif SCENARIO=="install"or SCENARIO=="setup"or SCENARIO=="setup-offline"or SCE
     if node("ccos/data/preserved.txt").data~="preserved user data"then fail("Setup changed user data")end
   end)
   step(2,function()ccos.exit()end)
-elseif SCENARIO == "small" then
-  writeFile("ccos/config.cfg",'{["screenLayout"]=2,["screens"]={["monitor_0"]={["role"]="desktop"}}}')
-  -- one small monitor desktop, no panel, one speaker
-  devices.monitor_1, devices.speaker_1 = nil, nil
-  mainMon = makeMonitor(4, 3, true)
-  attach("monitor_0", "monitor", mainMon)
-  SCREENS.main = mainMon
-  step(100, function() capture("Small desktop", { "main", "term" }) end)
-  step(2, tap("main", "Music"))
-  step(20, function() capture("Small music", { "main" }) end)
-  step(2, alt("f"))
-  step(20, function() capture("Files on the computer", { "term" }) end)
-  step(2, alt("space"))
-  step(2, typeText("exit"))
-  step(2, keyPress("enter"))
 end
 
 ---------------------------------------------------------------- run

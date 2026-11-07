@@ -54,7 +54,7 @@ return function(K,J,SHA,installer)
     U.pendingPrompt=false;U.promptOpen=true
     local version=U.available.version
     U.prompted=version
-    K.dialog({detached=true,screen=K.pictureScreen and K.pictureScreen()or K.homeScreen(),title="ccOS "..version.." available",text="Install update and restart? Your settings, files and API key are kept. Open windows will close.",buttons={"Later","Update & restart"},enterChoice=1,cb=function(i)U.promptOpen=false;if i==2 then U.install()end end})
+    K.dialog({detached=true,screen=K.pictureScreen and K.pictureScreen()or K.homeScreen(),title="ccOS "..version.." available",text="Install update and restart? Your settings, files and API key are kept. Open apps will close.",buttons={"Later","Update & restart"},enterChoice=1,cb=function(i)U.promptOpen=false;if i==2 then U.install()end end})
   end
   function U.maybePrompt()if U.pendingPrompt and U.available then U.prompt()end end
   function U.check(manual)

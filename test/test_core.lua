@@ -67,18 +67,6 @@ local updates=assert(loadfile(source.."/ccos/lib/updater.lua"))()({},J,sha,{})
 equal(updates.newer("2.1.1","2.1"),true,"Patch release triggers update")
 equal(updates.newer("2.1","2.1.1"),false,"Older release never replaces patch")
 equal(updates.newer("2.1.1","2.1.1"),false,"Same patch does not prompt")
-local mirror=assert(loadfile(source.."/ccos/lib/mirror.lua"))()
-local buf={getLine=function(y)return y==1 and "AB"or "CD","01",y==1 and "ef"or "ab"end}
-local rows=mirror.rows(buf,2,2,6,4)
-equal(#rows,4,"Stretch fills monitor height")
-equal(rows[1][3],"eeefff","Stretch fills left and right edges")
-equal(rows[4][3],"aaabbb","Stretch fills bottom corners")
-equal(rows[1][1]," A  B ","Text has one centred glyph per expanded cell")
-equal(rows[2][1],"      ","Stretched rows preserve spacing")
-equal(rows[3][1]," C  D ","Vertical glyph placement")
-local x,y=mirror.source(6,4,2,2,6,4);equal(x,2,"Right edge maps to desktop right");equal(y,2,"Bottom edge maps to desktop bottom")
-local xx,yy=mirror.target(2,2,2,2,6,4);equal(xx,5,"Cursor and touch share horizontal transform");equal(yy,3,"Cursor and touch share vertical transform")
-equal(mirror.source(0,1,2,2,6,4),nil,"Out-of-bounds touch ignored")
 local gfx=assert(loadfile(source.."/ccos/lib/gfx.lua","t",setmetatable({colors=setmetatable({},{__index=function()return 1 end})},{__index=_G})))()
 equal(gfx.FONT.M[3],"10101","Clock M has a clear middle stem")
 equal(#gfx.FONT.M[1],5,"Clock M uses enough columns for distinct shoulders")
@@ -89,16 +77,29 @@ equal(device.detect(nil,target).kind,"desktop","Small terminal alone is not a po
 equal(device.detect({},target).color,false,"Basic pocket detected")
 local startFactory=assert(loadfile(source.."/ccos/lib/startscreen.lua"))()
 local start=startFactory({},gfx,{})
-for _,size in ipairs({{82,19},{79,38},{36,10}})do
-  local cards={{id="desktop",name="Desktop"},{id="music",name="Music"},{id="clock",name="Clock"},{id="agent",name="AI Agent"},{id="units",name="Unit converter"},{id="storage",name="Storage analyzer"}}
-  local pages=start.layout(cards,size[1],size[2]);local count=0
+for _,size in ipairs({{82,19},{79,38},{36,10},{164,38},{82,26},{100,38},{61,26},{164,53},{57,24}})do
+  local cards={{id="terminal",name="Terminal"},{id="music",name="Music"},{id="clock",name="Clock"},{id="agent",name="AI Agent"},{id="units",name="Unit converter"},{id="storage",name="Storage analyzer"}}
+  for i=1,14 do cards[#cards+1]={id="tool"..i,name="Tool "..i}end
+  local pages,m=start.layout(cards,size[1],size[2]);local count=0
+  local where=size[1].."x"..size[2]
   for _,page in ipairs(pages)do
     for i,tile in ipairs(page)do
       count=count+1
-      assert(tile.x>=1 and tile.y>=1 and tile.x+tile.w-1<=size[1]and tile.y+tile.h-1<=size[2]-2,"Start tile outside monitor")
-      for j=1,i-1 do local b=page[j];assert(tile.x+tile.w<=b.x or b.x+b.w<=tile.x or tile.y+tile.h<=b.y or b.y+b.h<=tile.y,"Start tiles overlap")end
+      assert(tile.x>=1 and tile.y>=1 and tile.x+tile.w-1<=size[1]and tile.y+tile.h-1<=size[2]-2,"Start tile outside monitor at "..where)
+      assert(tile.y>m.groupRow,"Start tile over the group heading at "..where)
+      for j=1,i-1 do local b=page[j];assert(tile.x+tile.w<=b.x or b.x+b.w<=tile.x or tile.y+tile.h<=b.y or b.y+b.h<=tile.y,"Start tiles overlap at "..where)end
+      -- Medium tiles are square on screen: cells are 6x9 pixels, less a 3px gutter.
+      if tile.size=="medium"then
+        local pw,ph=tile.w*6-3,tile.h*9-3
+        assert(math.abs(pw-ph)/ph<=0.2,"Start tile stretched to "..pw.."x"..ph.." at "..where)
+      end
     end
   end
-  equal(count,#cards,"Every tile is reachable at "..size[1].."x"..size[2])
+  equal(count,#cards,"Every tile is reachable at "..where)
 end
+local catalogApps=catalog.apps()
+for _,a in ipairs(catalogApps)do assert(gfx.metro.GLYPH[a.id],"Tile glyph for "..a.id)end
+for id,rows in pairs(gfx.metro.GLYPH)do assert(#rows<=8 and #rows[1]<=8,"Tile glyph fits 8x8: "..id)end
+for ch,rows in pairs(gfx.metro.FACE)do equal(#rows,9,"Heading glyph height "..ch)end
+equal(gfx.metro.textWidth("Start"),22,"Heading face metrics")
 print(checks.." core assertions passed; "..#catalog.apps().." implemented utilities in catalog")

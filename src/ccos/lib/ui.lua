@@ -131,9 +131,12 @@ function G:button(x, y, label, fn, o)
   local bg = o.active and (o.activeBg or T.accent) or (o.bg or T.raised)
   local fg = o.active and (o.activeFg or T.bg) or (o.fg or T.text)
   if o.disabled then fg = T.muted end
-  self:fill(x, y, w, h, bg)
+  -- A one-row label only centres in an odd number of rows; an even height
+  -- keeps its full touch target but draws one row shorter.
+  local vh = h % 2 == 0 and h - 1 or h
+  self:fill(x, y, w, vh, bg)
   local lx = o.align == "left" and x + 1 or x + floor((w - #label) / 2)
-  self:text(lx, y + floor((h - 1) / 2), trunc(label, w), fg, bg)
+  self:text(lx, y + floor((vh - 1) / 2), trunc(label, w), fg, bg)
   if fn and not o.disabled then self:hit(x, y, x + w - 1, y + h - 1, fn) end
   return x + w
 end

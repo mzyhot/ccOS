@@ -22,7 +22,7 @@ end
 local function unused(path)
   local n=0;local dest=path;while fs.exists(dest)do n=n+1;dest=path.."."..n end;return dest
 end
-page("Welcome. Set up your computer and monitor tools.",1)
+page("Welcome. Set up ccOS Big Picture.",1)
 cfg.deviceKind=device.kind
 cfg.user=field("Your name",cfg.user or os.getComputerLabel()or "Home"):sub(1,40)
 if cfg.user==""then cfg.user="Home"end
@@ -38,11 +38,11 @@ end
 page("Clock and appearance",3)
 cfg.clock24=field("Hour format: 12 or 24",cfg.clock24==true and "24"or "12")=="24"
 cfg.leadingZero=yes("Pad hours with a zero? (01:00 instead of 1:00)",cfg.leadingZero==true)
-local theme=field("Theme: ccos, midnight, sunset, forest, ocean, classic",cfg.theme=="aurora"and "ccos"or(cfg.theme or "ccos"))
-if not({ccos=true,midnight=true,sunset=true,forest=true,ocean=true,classic=true})[theme]then theme="ccos"end
-cfg.theme=theme
-if cfg.wallpaper=="aurora"then cfg.wallpaper="ccos"end
-cfg.wallpaper=cfg.wallpaper or "ccos"
+local COLOURS={"purple","indigo","blue","teal","green","olive","orange","red","magenta","charcoal"}
+local colour=field("Start colour: "..table.concat(COLOURS,", "),cfg.startColor or "purple"):lower()
+local known=false;for _,c in ipairs(COLOURS)do if c==colour then known=true end end
+cfg.startColor=known and colour or "purple"
+cfg.theme,cfg.wallpaper,cfg.desktop,cfg.fullSync,cfg.shadows=nil,nil,nil,nil,nil
 page("AI Agent (optional)",4)
 print("The agent uses OpenRouter with your own API key.")
 print("You can add or change it later in AI Agent > Settings.")
@@ -59,7 +59,7 @@ page("Ready to finish",5)
 print("User: "..cfg.user)
 print("Time zone: "..time.label(cfg))
 print("Clock: "..time.format(cfg,false))
-print(device.pocket and "Layout: pocket launcher"or "Monitor: Start tiles")
+print(device.pocket and "Layout: pocket launcher"or "Layout: Big Picture, "..cfg.startColor.." Start")
 local connected=(newKey and newKey~="")or existing
 print("AI: "..(connected and "connected"or "configure later"))
 print()

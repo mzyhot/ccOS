@@ -149,9 +149,8 @@ return function(id, initial)
     elseif id=="memory"then self.cards={};for i=1,8 do self.cards[#self.cards+1]=i;self.cards[#self.cards+1]=i end;for i=16,2,-1 do local j=math.random(i);self.cards[i],self.cards[j]=self.cards[j],self.cards[i]end;self.matched={};self.revealed={}end
   end
   function app:draw(g)
-    if not ui.touch()then label(g,1,self.title,T.accent)end
-    local y=ui.touch()and 1 or 3
-    if not ui.touch()and g.h<12 then y=2 end
+    -- The Big Picture title bar already names the tool.
+    local y=g.h>=12 and 2 or 1
     if self.browser then browser(g,y)
     elseif id=="notes"or id=="journal"then
       local buttons={{"Browse notes",function()self.source=nil;self.text=""end}}
@@ -312,13 +311,15 @@ return function(id, initial)
     elseif id=="display"then
       local items={};for _,s in ipairs(ccos.screens())do items[#items+1]={label=s.name.."  "..s.role.."  "..s.w.."x"..s.h,screen=s}end
       paged(g,items,y,function(e)
-        if e.screen.kind=="term"then status("The computer remains a desktop")else
-          local roles={picture="mirror",mirror="desktop",desktop="panel",panel="off",off="picture"};ccos.setScreen(e.screen.name,roles[e.screen.role]);status("Changed "..e.screen.name)
+        if e.screen.kind=="term"then status("The computer follows its monitors")else
+          local roles={picture="panel",panel="off",off="picture"};ccos.setScreen(e.screen.name,roles[e.screen.role]or "picture");status("Changed "..e.screen.name)
         end
       end)
     elseif id=="palette"then
-      local order,themes=ccos.themes();local items={};for _,name in ipairs(order)do items[#items+1]={label=(ccos.config("theme")==name and "* "or "  ")..themes[name].name,name=name}end
-      paged(g,items,y,function(e)ccos.config("theme",e.name)end)
+      local starts,accents=ccos.colours();local items={}
+      for _,c in ipairs(starts)do items[#items+1]={label=(ccos.config("startColor")==c.id and "* "or "  ").."Start: "..c.name,key="startColor",id=c.id}end
+      for _,c in ipairs(accents)do items[#items+1]={label=(ccos.config("accentColor")==c.id and "* "or "  ").."Accent: "..c.name,key="accentColor",id=c.id}end
+      paged(g,items,y,function(e)ccos.config(e.key,e.id)end)
     elseif id=="soundtest"then
       local instruments={"harp","bell","chime","flute","guitar","pling","bass","snare"};self.instrument=self.instrument or 1
       y=actions(g,y,{{instruments[self.instrument],function()self.instrument=self.instrument%#instruments+1 end},{"Left",function()ccos.audio.note(instruments[self.instrument],12,-1,1.5)end},{"Center",function()ccos.audio.note(instruments[self.instrument],12,0,1.5)end},{"Right",function()ccos.audio.note(instruments[self.instrument],12,1,1.5)end}})

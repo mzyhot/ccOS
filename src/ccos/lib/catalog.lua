@@ -41,7 +41,7 @@ C.tools = {
   {"logs","Log viewer","Read OS and agent activity logs","Developer"},
   {"sysinfo","System info","Runtime, storage and attached hardware","System"},
   {"display","Displays","Roles, scale and monitor sizes","System"},
-  {"palette","Theme gallery","Preview and apply system themes","System"},
+  {"palette","Colours","Choose Start and accent colours","System"},
   {"soundtest","Speaker test","Test stereo channels and instruments","Media"},
   {"metronome","Metronome","Adjust tempo and count beats","Media"},
   {"lights","Lights Out","Clear the grid by toggling neighbors","Games"},

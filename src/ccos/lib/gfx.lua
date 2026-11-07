@@ -1,5 +1,5 @@
 -- ccOS graphics: pixel art drawn with teletext characters, big text,
--- app icons and generated wallpapers.
+-- app icons and the Metro face.
 --
 -- A teletext character (codes 128-159) is a 2x3 grid of pixels in two
 -- colours, so pixel art here is a list of strings of blit colour digits
@@ -257,153 +257,252 @@ function gfx.icon(t, x, y, name, scale)
   gfx.drawCells(t, x, y, cells)
 end
 
-------------------------------------------------------------------------
--- Wallpapers, generated per screen size
-------------------------------------------------------------------------
-
--- 2x2 ordered dither: pick a or b for a pixel at fraction v of the way.
-local BAYER = { { 0.125, 0.625 }, { 0.875, 0.375 } }
-local function dither(x, y, v, a, b)
-  return (v > BAYER[y % 2 + 1][x % 2 + 1]) and b or a
-end
-
--- Colour from gradient stops {{at, digit}, ...} at fraction v, dithered.
-local function gradient(stops, v, x, y)
-  if v <= stops[1][1] then return stops[1][2] end
-  for i = 2, #stops do
-    local a, b = stops[i - 1], stops[i]
-    if v <= b[1] then return dither(x, y, (v - a[1]) / (b[1] - a[1]), a[2], b[2]) end
-  end
-  return stops[#stops][2]
-end
-
-local function stars(cv, r, density, top)
-  for _ = 1, floor(cv.w * cv.h * density) do
-    local x, y = r(cv.w) + 1, r(floor(cv.h * top)) + 1
-    cv.set(x, y, r(5) == 0 and "0" or "8")
-  end
-end
-
-local function ridge(cv, base, amp, seed)
-  for x = 1, cv.w do
-    local f = x / cv.w
-    local top = floor(cv.h * (base + amp * (0.6 * math.sin(f * 7.3 + seed) + 0.4 * math.sin(f * 17.9 + seed * 2))))
-    for y = max(1, top), cv.h do cv.set(x, y, "f") end
-    cv.set(x, top, "7")
-  end
-end
-
-local WALLS = {}
-
-function WALLS.ccos(W, H)
-  local cv = gfx.canvas(W, H, "f")
-  local sky = { { 0, "f" }, { 0.25, "f" }, { 0.65, "c" }, { 0.9, "7" } }
-  for y = 1, H do
-    local v = (y - 1) / (H - 1)
-    for x = 1, W do cv.set(x, y, gradient(sky, v, x, y)) end
-  end
-  stars(cv, rng(7), 1 / 120, 0.6)
-  -- Two curtains of light: lime at the foot, cyan, then purple above.
-  local curtains = {
-    { base = 0.46, a1 = 0.09, f1 = 5.7, p1 = 0.8, a2 = 0.04, f2 = 15.1, height = 0.26, cols = { "5", "9", "a" } },
-    { base = 0.33, a1 = 0.07, f1 = 3.9, p1 = 2.4, a2 = 0.03, f2 = 10.7, height = 0.18, cols = { "9", "a", "2" } },
-  }
-  for _, c in ipairs(curtains) do
-    for x = 1, W do
-      local f = x / W
-      local foot = H * (c.base + c.a1 * math.sin(f * c.f1 + c.p1) + c.a2 * math.sin(f * c.f2 + c.p1 * 3))
-      local tall = H * c.height * (0.55 + 0.45 * math.sin(f * 9.1 + c.p1 * 2) ^ 2)
-      for y = max(1, floor(foot - tall)), min(H, floor(foot)) do
-        local k = (foot - y) / tall          -- 0 at the foot, 1 at the top
-        local col
-        if k < 0.12 then col = c.cols[1]
-        elseif k < 0.45 then col = c.cols[2]
-        elseif k < 0.8 then col = dither(x, y, (k - 0.45) / 0.35, c.cols[2], c.cols[3])
-        else col = dither(x, y, (k - 0.8) / 0.2, c.cols[3], cv.get(x, y)) end
-        cv.set(x, y, col)
-      end
-    end
-  end
-  ridge(cv, 0.80, 0.05, 1.3)
-  return cv
-end
-
-function WALLS.dusk(W, H)
-  local cv = gfx.canvas(W, H, "f")
-  local sky = { { 0, "f" }, { 0.35, "c" }, { 0.65, "a" }, { 0.85, "6" }, { 1, "1" } }
-  for y = 1, H do
-    local v = (y - 1) / (H - 1)
-    for x = 1, W do cv.set(x, y, gradient(sky, v, x, y)) end
-  end
-  stars(cv, rng(11), 1 / 160, 0.3)
-  ridge(cv, 0.78, 0.07, 0.4)
-  return cv
-end
-
-function WALLS.retro(W, H)
-  local cv = gfx.canvas(W, H, "f")
-  local horizon = floor(H * 0.58)
-  local sky = { { 0, "f" }, { 0.6, "c" }, { 1, "a" } }
-  for y = 1, horizon do
-    for x = 1, W do cv.set(x, y, gradient(sky, (y - 1) / horizon, x, y)) end
-  end
-  stars(cv, rng(3), 1 / 140, 0.4)
-  -- A striped sun sitting on the horizon.
-  local cx, r = floor(W / 2), floor(H * 0.26)
-  for y = horizon - r, horizon - 1 do
-    local band = (horizon - y) / r
-    if not (band < 0.45 and (y % 4 < 1)) then
-      local half = floor(math.sqrt(max(0, r * r - (horizon - y) ^ 2)) * 1.6)
-      local col = band > 0.6 and "4" or (band > 0.3 and "1" or "6")
-      for x = cx - half, cx + half do cv.set(x, y, col) end
-    end
-  end
-  -- Perspective grid below the horizon.
-  for y = horizon, H do
-    local d = (y - horizon + 1) / (H - horizon + 1)
-    for x = 1, W do
-      local col = "f"
-      if floor((d ^ 0.5) * 9 * 4) % 4 == 0 then col = "a" end
-      local u = (x - cx) / (d * W * 0.08 + 0.01)
-      if math.abs(u - floor(u + 0.5)) < 0.06 / d then col = "a" end
-      cv.set(x, y, col)
-    end
-  end
-  for x = 1, W do cv.set(x, horizon, "6") end
-  return cv
-end
-
-function WALLS.stars(W, H)
-  local cv = gfx.canvas(W, H, "f")
-  local r = rng(42)
-  for _ = 1, floor(W * H / 70) do
-    local x, y = r(W) + 1, r(H) + 1
-    local k = r(10)
-    cv.set(x, y, k == 0 and "0" or (k < 3 and "8" or (k < 5 and "3" or "7")))
-  end
-  return cv
-end
-
-function WALLS.solid(W, H)
-  local cv = gfx.canvas(W, H, "f")
-  local sky = { { 0, "f" }, { 1, "c" } }
-  for y = 1, H do
-    for x = 1, W do cv.set(x, y, gradient(sky, (y - 1) / (H - 1) * 0.7, x, y)) end
-  end
-  return cv
-end
-
-gfx.WALLPAPERS = { "ccos", "dusk", "retro", "stars", "solid" }
-
--- Wallpaper cells for a w by h character screen.
-function gfx.wallpaper(kind, w, h)
-  local make = WALLS[kind] or WALLS.ccos
-  return gfx.cells(make(w * 2, h * 3).rows(), "f")
-end
-
 -- The splash logo: a small ccos over the word mark.
 function gfx.logo(scale)
   return gfx.pixelText("CCOS", scale or 2, { "9", "5", "9", "a", "6", "a" }, "f")
+end
+
+------------------------------------------------------------------------
+-- Metro: a thin proportional heading face, monochrome tile glyphs and
+-- sub-cell geometry for the Big Picture Start screen. Everything here is
+-- drawn in teletext pixels (2x3 per cell, each 3x3 screen pixels square),
+-- so tile gaps, glyph centring and headings land on exact pixels.
+------------------------------------------------------------------------
+
+local metro = {}
+gfx.metro = metro
+
+local function unpackRows(spec, height)
+  local rows = {}
+  for row in spec:gmatch("%S+") do rows[#rows + 1] = row end
+  local w = #(rows[1] or "")
+  while #rows < (height or #rows) do rows[#rows + 1] = ("."):rep(w) end
+  return rows
+end
+
+-- Rows 1-7: capitals and ascenders; 3-7: x-height; 8-9: descenders.
+local FACE = {
+  A = "..#.. .#.#. .#.#. #...# ##### #...# #...#", B = "###. #..# #..# ###. #..# #..# ###.",
+  C = ".### #... #... #... #... #... .###", D = "###.. #..#. #...# #...# #...# #..#. ###..",
+  E = "#### #... #... ###. #... #... ####", F = "#### #... #... ###. #... #... #...",
+  G = ".#### #.... #.... #..## #...# #...# .####", H = "#...# #...# #...# ##### #...# #...# #...#",
+  I = "# # # # # # #", J = "..# ..# ..# ..# ..# ..# ##.",
+  K = "#...# #..#. #.#.. ##... #.#.. #..#. #...#", L = "#... #... #... #... #... #... ####",
+  M = "#.....# ##...## #.#.#.# #..#..# #.....# #.....# #.....#", N = "#...# ##..# ##..# #.#.# #..## #..## #...#",
+  O = ".####. #....# #....# #....# #....# #....# .####.", P = "###. #..# #..# ###. #... #... #...",
+  Q = ".####. #....# #....# #....# #..#.# #...#. .###.#", R = "###. #..# #..# ###. #.#. #..# #..#",
+  S = ".### #... #... .##. ...# ...# ###.", T = "##### ..#.. ..#.. ..#.. ..#.. ..#.. ..#..",
+  U = "#...# #...# #...# #...# #...# #...# .###.", V = "#...# #...# #...# .#.#. .#.#. .#.#. ..#..",
+  W = "#.....# #.....# #..#..# #..#..# #.#.#.# #.#.#.# .#...#.", X = "#...# .#.#. .#.#. ..#.. .#.#. .#.#. #...#",
+  Y = "#...# .#.#. .#.#. ..#.. ..#.. ..#.. ..#..", Z = "##### ....# ...#. ..#.. .#... #.... #####",
+  a = ".... .... .##. ...# .### #..# .###", b = "#... #... ###. #..# #..# #..# ###.",
+  c = "... ... .## #.. #.. #.. .##", d = "...# ...# .### #..# #..# #..# .###",
+  e = ".... .... .##. #..# #### #... .###", f = ".## #.. ### #.. #.. #.. #..",
+  g = ".... .... .### #..# #..# #..# .### ...# ###.", h = "#... #... ###. #..# #..# #..# #..#",
+  i = "# . # # # # #", j = ".# .. .# .# .# .# .# .# #.",
+  k = "#... #... #..# #.#. ##.. #.#. #..#", l = "# # # # # # #",
+  m = "....... ....... ###.##. #..#..# #..#..# #..#..# #..#..#", n = ".... .... ###. #..# #..# #..# #..#",
+  o = ".... .... .##. #..# #..# #..# .##.", p = ".... .... ###. #..# #..# #..# ###. #... #...",
+  q = ".... .... .### #..# #..# #..# .### ...# ...#", r = ".... .... #.## ##.. #... #... #...",
+  s = "... ... .## #.. .#. ..# ##.", t = "... .#. ### .#. .#. .#. ..#",
+  u = ".... .... #..# #..# #..# #..# .###", v = "..... ..... #...# #...# .#.#. .#.#. ..#..",
+  w = "..... ..... #...# #...# #.#.# #.#.# .#.#.", x = "..... ..... #...# .#.#. ..#.. .#.#. #...#",
+  y = ".... .... #..# #..# #..# #..# .### ...# ###.", z = ".... .... #### ..#. .#.. #... ####",
+  ["0"] = ".##. #..# #..# #..# #..# #..# .##.", ["1"] = "..#. .##. ..#. ..#. ..#. ..#. ..#.",
+  ["2"] = ".##. #..# ...# ..#. .#.. #... ####", ["3"] = "###. ...# ...# .##. ...# ...# ###.",
+  ["4"] = "...# ..## .#.# #..# #### ...# ...#", ["5"] = "#### #... #... ###. ...# ...# ###.",
+  ["6"] = ".##. #... #... ###. #..# #..# .##.", ["7"] = "#### ...# ..#. ..#. .#.. .#.. .#..",
+  ["8"] = ".##. #..# #..# .##. #..# #..# .##.", ["9"] = ".##. #..# #..# .### ...# ...# .##.",
+  [" "] = "... ... ... ... ... ... ...", [":"] = ". . # . . # .", ["."] = ". . . . . . #",
+  [","] = ". . . . . . # #", ["-"] = "... ... ... ### ... ... ...", ["'"] = "# # . . . . .",
+  ["!"] = "# # # # # . #", ["?"] = ".##. #..# ...# ..#. .#.. .... .#..",
+  ["/"] = "...# ...# ..#. ..#. .#.. .#.. #...", ["("] = ".# #. #. #. #. #. .#", [")"] = "#. .# .# .# .# .# #.",
+  ["&"] = ".##.. #..#. .##.. .#... #.#.# #..#. .##.#", ["+"] = "... ... .#. ### .#. ... ...",
+  ["_"] = ".... .... .... .... .... .... .... ####",
+}
+for ch, spec in pairs(FACE) do FACE[ch] = unpackRows(spec, 9) end
+metro.FACE = FACE
+
+local function faceGlyph(ch) return FACE[ch] or FACE[ch:upper()] or FACE["?"] end
+
+-- Width in teletext pixels of text in the heading face.
+function metro.textWidth(text, scale)
+  scale = scale or 1
+  local w = 0
+  for i = 1, #text do w = w + #faceGlyph(text:sub(i, i))[1] * scale + (i > 1 and scale or 0) end
+  return w
+end
+
+-- Draw text into a canvas at pixel (x, y), top of capitals. Returns end x.
+function metro.drawText(cv, x, y, text, color, scale)
+  scale = scale or 1
+  for i = 1, #text do
+    local g = faceGlyph(text:sub(i, i))
+    for r = 1, #g do
+      local row = g[r]
+      for c = 1, #row do
+        if row:sub(c, c) == "#" then
+          for dy = 0, scale - 1 do
+            for dx = 0, scale - 1 do cv.set(x + (c - 1) * scale + dx, y + (r - 1) * scale + dy, color) end
+          end
+        end
+      end
+    end
+    x = x + (#g[1] + 1) * scale
+  end
+  return x
+end
+
+-- Stamp a '#'/'.' bitmap into a canvas.
+function metro.stamp(cv, x, y, rows, color)
+  for r = 1, #rows do
+    local row = rows[r]
+    for c = 1, #row do
+      if row:sub(c, c) == "#" then cv.set(x + c - 1, y + r - 1, color) end
+    end
+  end
+end
+
+function metro.rect(cv, x, y, w, h, color)
+  for yy = y, y + h - 1 do for xx = x, x + w - 1 do cv.set(xx, yy, color) end end
+end
+
+-- Eight-by-eight white glyphs in the flat Metro idiom.
+local GLYPH = {
+  files = "###..... #..##### #......# #......# #......# #......# ########",
+  viewer = "#####... #...##.. #....#.. #.###.#. #......# #.####.# #......# ########",
+  notes = "######## #......# #.####.# #......# #.###..# #.....## #....##. ######..",
+  journal = ".######. ##.....# ##.##..# ##.....# ##.###.# ##.....# ##.....# .#######",
+  checklist = ".......# ......## .....##. #...##.. ##.##... .###.... ..#.....",
+  bookmarks = ".######. .######. .######. .######. .######. .######. .##..##. .#....#.",
+  music = "..###### ..###### ..#....# ..#....# ..#....# ###..### ###..### .#....#.",
+  piano = "######## #.#.#..# #.#.#..# #.#.#..# #.#.#..# ########",
+  clock = "..####.. .#....#. #..#...# #..#...# #..###.# #......# .#....#. ..####..",
+  worldclock = "..####.. .#.##.#. #..##..# ######## ######## #..##..# .#.##.#. ..####..",
+  calendar = ".#....#. ######## ######## #......# #.#.#.## #......# #.#.#..# ########",
+  focus = "..####.. .#....#. #..##..# #.#..#.# #.#..#.# #..##..# .#....#. ..####..",
+  stopwatch = "..###... ...#.... .#####.. #..#..#. #..#..#. #.....#. #.....#. .#####..",
+  timer = "######## .#....#. ..#..#.. ...##... ..#..#.. .#.##.#. ########",
+  calc = ".#...... ###.###. .#...... ........ #.#.###. .#...... #.#.###.",
+  units = "######## #.#.#.## #.#.#..# #......# ########",
+  percentage = "##....#. ##...#.. ....#... ...#.... ..#..... .#...##. #....##.",
+  base = ".#..###. ##..#.#. .#..#.#. .#..#.#. ###.###.",
+  random = "######## #......# #.#....# #..##..# #..##..# #....#.# #......# ########",
+  dice = ".######. #.####.# ######## ###..### ###..### ######## #.####.# .######.",
+  coin = "..####.. .######. ##....## ##.##.## ##.##.## ##....## .######. ..####..",
+  tally = ".#...#.. ###.##.. .#...#.. .....#.. ....###.",
+  textstats = "####### #...... .#..... ..#.... .#..... #...... #######",
+  textcase = ".#...... #.#..... #.#..##. ###....# #.#..### #.#.#..# .....###",
+  lines = "######## ........ ######.. ........ ####.... ........ ##......",
+  replace = ".####... #....#.. #....#.. #....#.. #....#.. .####... .....##. ......##",
+  urlencode = ".....##. ....#..# ....#..# ..##.##. .##.##.. #..#.... #..#.... .##.....",
+  base64 = "###.#.#. #...#.#. ###.###. #.#...#. ###...#.",
+  json = ".##..##. .#....#. .#....#. #......# .#....#. .#....#. .##..##.",
+  http = "...###.. ..#...#. .##....# #......# #......# .######.",
+  network = ".######. #......# ..####.. .#....#. ...##... ...##...",
+  terminal = "######## ######## #......# #.#....# #..#...# #.#.##.# #......# ########",
+  edit = "......## .....### ....###. ...###.. ..###... .###.... .##..... #.......",
+  lua = "..####.. .##..#.. ##...... ##...... ##...... .##...#. ..####..",
+  paint = "......## .....### ....###. ...###.. .##.#... ####.... ###..... .#......",
+  redstone = "....##.. ...##... ..##.... .######. ....##.. ...##... ..##....",
+  analog = ".##..... #..#.... #..#...# ....#..# .....##.",
+  bundled = "##.##.## ##.##.## ........ ##.##.## ##.##.## ........ ##.##.## ##.##.##",
+  peripherals = ".#..#... .#..#... ######.. ######.. .####... ..##.... ..##....",
+  inventory = "######## #......# ######## #..##..# #......# #......# ########",
+  energy = "#######. #.....#. #.###.## #.###.## #.....#. #######.",
+  fluids = "...#.... ..###... ..###... .#####.. #######. #######. .#####.. ..###...",
+  disks = "######## #.####.# #.####.# #......# #.####.# #.#..#.# #.####.# ########",
+  disk = "######## #.####.# #.####.# #......# #.####.# #.#..#.# #.####.# ########",
+  storage = "..####.. .###..#. ####...# ####...# ######## .######. ..####..",
+  backup = "...##... ..####.. .######. ...##... ...##... #..##..# #......# ########",
+  logs = "#.###### ........ #.###### ........ #.####.. ........ #.######",
+  sysinfo = "..#..#.. .######. ##....## .#....#. ##....## .######. ..#..#..",
+  display = "######## #......# #......# #......# ######## ...##... .######.",
+  palette = "..####.. .#....#. #.#..#.# #......# #.#...#. .#...#.. ..###...",
+  soundtest = "...#..#. ..##...# ####.#.# ####.#.# ..##...# ...#..#.",
+  metronome = "...##... ...##... ..#..#.. ..#.##.. .#.#..#. .##....# .#.....# ########",
+  lights = "..####.. .#....#. .#....#. .#....#. ..#..#.. ..####.. ..####..",
+  memory = "####.... #..#.... #..##### ####...# ...#...# ...#...# ...#####",
+  tictactoe = "..#..#.. ..#..#.. ######## ..#..#.. ..#..#.. ######## ..#..#.. ..#..#..",
+  guess = ".####. #....# .....# ...##. ..#... ...... ..#...",
+  print = "..####.. ..#..#.. ######## #......# #.####.# #.#..#.# ..####..",
+  tasks = "......#. ....#.#. ..#.#.#. ..#.#.#. #.#.#.#. #.#.#.#. ########",
+  settings = "...##... .#.##.#. ..####.. ###..### ###..### ..####.. .#.##.#. ...##...",
+  about = "..####.. .######. ###..### ######## ###..### ###..### .##..##. ..####..",
+  worm = "####.... #..#.... #..####. #.....#. ####..#. ...####.",
+  agent = "...#.... ...#.... ..###... #######. ..###... ...#..#. ...#.### ......#.",
+  notifications = "...##... ..####.. .######. .######. .######. ######## ...##...",
+  devices = ".#..#... .#..#... ######.. ######.. .####... ..##.... ..##....",
+  desktop = "######## #......# #......# #......# ######## ...##... .######.",
+}
+for id, spec in pairs(GLYPH) do GLYPH[id] = unpackRows(spec) end
+metro.GLYPH = GLYPH
+
+-- Interface marks. Circles are odd-sized so arrows sit on the exact centre.
+metro.MARKS = {
+  power = unpackRows("...#... .#.#.#. #..#..# #..#..# #.....# .#...#. ..###.."),
+  search = "...####. ..#....# ..#....# ..#....# ..#....# ...####. ..#..... .#...... #.......",
+  avatar = "......... ...###... ..#####.. ..#####.. ..#####.. ...###... ......... ..#####.. .#######.",
+  down = "...###... .##...##. .#..#..#. #...#...# #.#.#.#.# #..###..# .#..#..#. .##...##. ...###...",
+  up = "...###... .##...##. .#..#..#. #..###..# #.#.#.#.# #...#...# .#..#..#. .##...##. ...###...",
+  back = "...###... .##...##. .#..#..#. #..#....# #.#####.# #..#....# .#..#..#. .##...##. ...###...",
+  downSmall = "...##... ...##... ...##... .######. ..####.. ...##...",
+  upSmall = "...##... ..####.. .######. ...##... ...##... ...##...",
+  backSmall = ".#####. #..#..# #.#...# #..#..# #.....# .#####.",
+}
+for k, spec in pairs(metro.MARKS) do if type(spec) == "string" then metro.MARKS[k] = unpackRows(spec) end end
+
+function metro.glyph(id) return GLYPH[id] or GLYPH.about end
+
+-- Cells for a monochrome bitmap: fg digit on bg digit, offset by whole
+-- teletext pixels (ox in 0..1, oy in 0..2) inside its cell grid.
+local markCache = {}
+function metro.markCells(rows, fg, bg, ox, oy)
+  ox, oy = ox or 0, oy or 0
+  local key = tostring(rows) .. fg .. bg .. ox .. oy
+  local cached = markCache[key]
+  if cached then return cached end
+  local w, h = #rows[1] + ox, #rows + oy
+  local cv = gfx.canvas(w + w % 2, h + (3 - h % 3) % 3, bg)
+  metro.stamp(cv, 1 + ox, 1 + oy, rows, fg)
+  cached = gfx.cells(cv.rows(), bg)
+  markCache[key] = cached
+  return cached
+end
+
+-- A flat tile filling pw x ph cells with a one-pixel gap on its right and
+-- bottom edges (3 screen pixels each way, matching the 10px Start gutter).
+-- Returns a canvas the caller can draw on, and the visible pixel size.
+function metro.tileCanvas(pw, ph, color, gap)
+  local cv = gfx.canvas(pw * 2, ph * 3, color)
+  for y = 1, ph * 3 do cv.set(pw * 2, y, gap) end
+  for x = 1, pw * 2 do cv.set(x, ph * 3, gap) end
+  return cv, pw * 2 - 1, ph * 3 - 1
+end
+
+-- Centre a glyph inside a tile canvas above its label row.
+function metro.placeGlyph(cv, rows, pw, ph, color, label)
+  local vw, vh = pw * 2 - 1, ph * 3 - 1
+  local gw, gh = #rows[1], #rows
+  local x = floor((vw - gw) / 2) + 1
+  local y = floor((vh - gh) / 2) + 1
+  if label then y = min(y, (ph - 2) * 3 - gh - 1) end
+  metro.stamp(cv, x, max(2, y), rows, color)
+end
+
+-- Bitmap of text in the heading face, ready for markCells.
+local textCache, textCount = {}, 0
+function metro.textRows(text, scale)
+  scale = scale or 1
+  local key = scale .. ":" .. text
+  if textCache[key] then return textCache[key] end
+  if textCount > 64 then textCache, textCount = {}, 0; markCache = {} end
+  local w = max(1, metro.textWidth(text, scale))
+  local cv = gfx.canvas(w, 9 * scale, ".")
+  metro.drawText(cv, 1, 1, text, "#", scale)
+  local rows = cv.rows()
+  textCache[key], textCount = rows, textCount + 1
+  return rows
 end
 
 return gfx

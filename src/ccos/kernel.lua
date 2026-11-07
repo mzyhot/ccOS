@@ -1,17 +1,18 @@
 --[[
-  ccOS                                                        v2.2
+  ccOS                                                        v3.0
 
-  A windowed desktop for CC: Tweaked across every screen it can find:
-  the computer's desktop and advanced monitors as touch-only media hubs,
-  smaller monitors as information panels, two speakers as a stereo pair,
-  plus printers and disk drives.
+  A Windows 8.1-style touch OS for CC: Tweaked. The main advanced monitor
+  runs Big Picture (Start tiles, full-screen apps, PC settings) and the
+  computer becomes its keyboard; with no monitor the computer runs Big
+  Picture itself. Smaller monitors show information panels, two speakers
+  form a stereo pair, and printers and disk drives are built in.
 
-  Every app is an ordinary CC program running in its own window, so the
-  CraftOS shell, edit, paint and friends work unchanged; ccOS's own
+  Every app is an ordinary CC program in its own full-screen window, so
+  the CraftOS shell, edit, paint and friends work unchanged; ccOS's own
   apps add the `ccos` API on top.
 ]]
 
-local VERSION = "2.2"
+local VERSION = "3.0"
 local ROOT = "/ccos"
 local CONFIG_PATH = ROOT .. "/config.cfg"
 local nativeTerm = term.current()
@@ -88,7 +89,6 @@ local json = loadModule(ROOT .. "/lib/json.lua")
 local sha256=loadModule(ROOT.."/lib/sha256.lua")
 local encoding=loadModule(ROOT.."/lib/encoding.lua")
 K.encoding=encoding
-local mirror=loadModule(ROOT.."/lib/mirror.lua")
 local installer=loadModule(ROOT.."/lib/install.lua")
 K.clock, K.catalog, K.json = clock, catalog, json
 
@@ -97,12 +97,11 @@ K.clock, K.catalog, K.json = clock, catalog, json
 ------------------------------------------------------------------------
 
 local DEFAULTS = {
-  user = "Home", theme = "ccos", wallpaper = "ccos",
+  user = "Home", startColor = "purple", accentColor = "teal",
   clock24 = false, seconds = false, leadingZero = false, timezone = "local", utcOffset = 0,
   sounds = true, touchSounds = true, uiVolume = 0.6, musicVolume = 0.8, balance = 0, swapSpeakers = false,
-  screens = {}, panelRotate = 12, idle = 300, shadows = true,
-  desktop = { "files", "terminal", "music", "piano", "clock", "calc", "print", "tasks", "settings", "agent", "notes", "checklist" },
-  fullSync=false, autoUpdates=true, deviceKind="desktop",
+  screens = {}, panelRotate = 12, idle = 300,
+  autoUpdates=true, deviceKind="desktop",
   monitorFavorites={"files","music","clock","calc","settings","agent","notes","checklist","worldclock","units","redstone","peripherals"},
   recent = {}, screenLayout = 0, setupComplete = false, agentModel = "openrouter/auto", agentConfirm = true, agentMaxSteps = 16, agentMaxTokens = 2048,
 }
@@ -128,8 +127,6 @@ local function loadConfig()
       end
     end
   end
-  if cfg.theme == "aurora" then cfg.theme = "ccos" end
-  if cfg.wallpaper == "aurora" then cfg.wallpaper = "ccos" end
   cfg.deviceKind=K.device.kind
   K.cfg = cfg
 end
@@ -143,8 +140,10 @@ function K.saveConfig()
 end
 
 ------------------------------------------------------------------------
--- Themes. Every theme fills the same 16 slots, so the semantic colours
--- below never change; only what each slot looks like does.
+-- Colours. Every screen uses one flat Windows 8.1 palette: dark app
+-- surfaces, white type and saturated tile colours. The semantic slots
+-- below never change; the Start background (select) and the accent follow
+-- the chosen Start and accent colours.
 ------------------------------------------------------------------------
 
 local C = colors
@@ -164,32 +163,36 @@ local function pal(t)
   }
 end
 
-local THEMES = {
-  ccos = { name = "ccOS", palette = pal({ 0x0E1020, 0x1F2440, 0x2E3560, 0x8C93BF, 0xEEF1FF, 0x3DDBD9,
-    0x4D7CFF, 0x9B6BFF, 0xD66BFF, 0xFF7EB6, 0x6BFFB0, 0x2FB67C, 0xFFD36B, 0xFF9B54, 0xFF5C73, 0x7FC8FF }) },
-  midnight = { name = "Midnight", palette = pal({ 0x0B0F1A, 0x161E2E, 0x22304A, 0x7D8BA6, 0xE8EEF9, 0x5AB0FF,
-    0x3D7BFF, 0x7A6CFF, 0xB86CFF, 0xFF79A8, 0x6EE7A8, 0x2E9E6E, 0xFFD479, 0xFFA15C, 0xFF5F6D, 0x9CCBFF }) },
-  sunset = { name = "Sunset", palette = pal({ 0x1A0F14, 0x2B1A24, 0x3D2533, 0xA88C99, 0xFFF1EC, 0xFF9E64,
-    0xFF6B8B, 0xC86BFA, 0xFF5DA2, 0xFF8FB1, 0xB8E986, 0x6BBF8A, 0xFFD56B, 0xFF8A4C, 0xFF4F5E, 0x8FB8FF }) },
-  forest = { name = "Forest", palette = pal({ 0x0D1510, 0x17241B, 0x223527, 0x86A08F, 0xEEF6EF, 0x6BE3A4,
-    0x4FA3FF, 0x9C7BFF, 0xD27BFF, 0xFF8FA8, 0xA6F06B, 0x3BA55C, 0xF2D86B, 0xF2A65A, 0xF2665A, 0x8CD3FF }) },
-  ocean = { name = "Ocean", palette = pal({ 0x07131C, 0x0F2230, 0x173246, 0x7FA2B8, 0xE9F6FF, 0x2EE6D6,
-    0x2A8CFF, 0x6C7BFF, 0xB07BFF, 0xFF7FB0, 0x5CF2A8, 0x1FA67A, 0xFFE07A, 0xFFB26B, 0xFF6B6B, 0x7FD8FF }) },
-  classic = { name = "Classic", palette = { [C.brown] = 0x333333 } },
+local START_COLORS = {
+  { id = "purple", name = "Purple", rgb = 0x2A1660 }, { id = "indigo", name = "Indigo", rgb = 0x1B2A6B },
+  { id = "blue", name = "Blue", rgb = 0x00316E }, { id = "teal", name = "Teal", rgb = 0x00575E },
+  { id = "green", name = "Green", rgb = 0x1A5627 }, { id = "olive", name = "Olive", rgb = 0x4F5A12 },
+  { id = "orange", name = "Rust", rgb = 0x8A2E0C }, { id = "red", name = "Crimson", rgb = 0x7A0A26 },
+  { id = "magenta", name = "Magenta", rgb = 0x6E0F5E }, { id = "charcoal", name = "Charcoal", rgb = 0x262626 },
 }
-local THEME_ORDER = { "ccos", "midnight", "sunset", "forest", "ocean", "classic" }
-K.THEMES, K.THEME_ORDER = THEMES, THEME_ORDER
+local ACCENT_COLORS = {
+  { id = "teal", name = "Teal", rgb = 0x00ABA9 }, { id = "blue", name = "Blue", rgb = 0x2D89EF },
+  { id = "cobalt", name = "Cobalt", rgb = 0x0050EF }, { id = "violet", name = "Violet", rgb = 0x8E44D8 },
+  { id = "magenta", name = "Magenta", rgb = 0xD80073 }, { id = "red", name = "Red", rgb = 0xE51400 },
+  { id = "orange", name = "Orange", rgb = 0xF09609 }, { id = "lime", name = "Lime", rgb = 0x8CBF26 },
+  { id = "emerald", name = "Emerald", rgb = 0x008A00 },
+}
+K.START_COLORS, K.ACCENT_COLORS = START_COLORS, ACCENT_COLORS
+local function pick(list, id)
+  for _, c in ipairs(list) do if c.id == id then return c.rgb end end
+  return list[1].rgb
+end
+local function metroPalette()
+  return pal({ 0x1D1D1D, 0x2B2B2B, 0x464646, 0xA6A6A6, 0xFFFFFF, pick(ACCENT_COLORS, K.cfg.accentColor),
+    pick(START_COLORS, K.cfg.startColor), 0x603CBA, 0x9F00A7, 0xD80073, 0x00A300, 0x1E7145, 0xE3A21A, 0xDA532C, 0xE51400, 0x2D89EF })
+end
+K.metroPalette = metroPalette
 
 local function applyPalette(t)
-  local th = THEMES[K.cfg.theme] or THEMES.ccos
+  local p = metroPalette()
   for i = 0, 15 do
     local c = floor(2 ^ i)
-    local v = th.palette[c]
-    if v then
-      t.setPaletteColour(c, v)
-    else
-      t.setPaletteColour(c, term.nativePaletteColour(c))
-    end
+    t.setPaletteColour(c, p[c] or term.nativePaletteColour(c))
   end
 end
 
@@ -226,7 +229,8 @@ APPS[#APPS + 1] = { id="devices", name="Devices", desc="Drives, printer and spea
 APPS[#APPS + 1] = { id="agent", name="AI Agent", desc="OpenRouter assistant with OS tools", path="agent", category="AI", touch=true, w=76, h=24 }
 for _, app in ipairs(APPS) do
   app.category = app.category or catalog.base[app.id] or "System"
-  app.touch = app.touch or ({clock=true,piano=true,calc=true})[app.id] or false
+  -- Every app runs full screen in Big Picture.
+  app.touch = true
 end
 for _, app in ipairs(catalog.apps()) do APPS[#APPS+1] = app end
 local categoryIcons={Files="files",Time="clock",Media="music",Math="calc",Text="viewer",Developer="terminal",System="tasks",Games="worm",AI="agent"}
@@ -396,9 +400,7 @@ end
 local function autoScale(m, role)
   local bw, bh = monitorBlocks(m)
   local needW, needH = 60, 30
-  if role == "panel" then needW, needH = 40, 8
-  elseif role == "picture" then needW, needH = 60, 19
-  elseif role == "mirror" then needW, needH = nativeTerm.getSize() end
+  if role == "panel" then needW, needH = 40, 8 end
   for s = 5, 0.5, -0.5 do
     local w, h = charsAt(bw, bh, s)
     if w >= needW and h >= needH then return s end
@@ -418,41 +420,64 @@ local function setupScreen(s)
   s.w, s.h = s.target.getSize()
   s.buf = window.create(s.target, 1, 1, s.w, s.h, false)
   s.cache = {}
-  s.taskH = (s.kind == "monitor" and s.h >= 24) and 3 or 1
   s.touch = s.kind == "monitor"
-  s.menu, s.popup = nil, nil
   applyPalette(s.target)
   s.target.setCursorBlink(false)
   s.dirty = true
 end
 
+-- Big Picture is the only shell. The main advanced monitor runs it and the
+-- computer becomes its keyboard console; with no such monitor the computer
+-- runs Big Picture itself. Pocket computers keep their compact launcher.
+function K.pictureScreen()
+  if K.device.pocket then return nil end
+  local s = K.primaryMonitorName and screenByName[K.primaryMonitorName]
+  if s and s.role == "picture" then return s end
+  for _, c in ipairs(screens) do if c.kind == "monitor" and c.role == "picture" then return c end end
+  local t = screenByName.term
+  if t and t.role == "picture" then return t end
+end
+
 function K.homeScreen()
-  if K.device.pocket then return screenByName.term end
-  for _, s in ipairs(screens) do
-    if s.kind == "monitor" and s.role == "desktop" then return s end
-  end
-  return screenByName.term
+  return K.pictureScreen() or screenByName.term
 end
 
 function K.activeScreen()
-  if K.focus and K.focus.screen.role == "desktop" then return K.focus.screen end
-  if K.lastScreen and K.lastScreen.role == "desktop" and screenByName[K.lastScreen.name] then return K.lastScreen end
+  local last = K.lastScreen
+  if last and last.role == "picture" and screenByName[last.name] == last then return last end
   return K.homeScreen()
 end
 
+-- The app a Big Picture screen shows full screen, if any.
+function K.pictureApp(s)
+  local v = s and s.picture
+  if not v or not v.appPid then return end
+  for _, w in ipairs(wins) do
+    if w.id == v.appPid and w.screen == s and not w.proc.dead then return w end
+  end
+end
+
+local function hosts(s) return s.role == "picture" or s.role == "pocket" end
+
 function K.buildScreens()
   local list, byName = {}, {}
-  local function make(name, target, kind, defaultRole)
+  -- The retired desktop and Full Sync roles become Big Picture.
+  local migrated = false
+  for _, conf in pairs(K.cfg.screens) do
+    if type(conf) == "table" and (conf.role == "desktop" or conf.role == "mirror") then
+      conf.role, conf.scale, migrated = "picture", "auto", true
+    end
+  end
+  if K.cfg.screenLayout < 3 then K.cfg.screenLayout, migrated = 3, true end
+  if migrated then K.saveConfig() end
+  local function make(name, target, kind, defaultRole, color)
     local s = screenByName[name] or { name = name, hits = {}, cache = {} }
     local conf = K.cfg.screens[name] or {}
     s.target, s.kind = target, kind
     local was = s.role
     s.role = conf.role or defaultRole
-    if was=="picture"and s.role~="picture"and byName.term then
-      local dest=byName.term;dest.dialogs=dest.dialogs or {}
-      for _,d in ipairs(s.dialogs or {})do d.screen=dest;dest.dialogs[#dest.dialogs+1]=d end
-      s.dialogs={}
-    end
+    -- Basic monitors cannot be touched, so they show the info panel.
+    if kind == "monitor" and s.role == "picture" and not color then s.role = "panel" end
     s.scaleCfg = conf.scale or "auto"
     if was and was ~= "off" and s.role == "off" then
       pcall(function()
@@ -465,7 +490,7 @@ function K.buildScreens()
     byName[name] = s
     return s
   end
-  make("term", nativeTerm, "term", "desktop").role = "desktop"
+  local home = make("term", nativeTerm, "term", "picture", true)
   local mons = {}
   for _, n in ipairs(peripheral.getNames()) do
     if peripheral.getType(n) == "monitor" then
@@ -478,77 +503,61 @@ function K.buildScreens()
     if a.color ~= b.color then return a.color end
     return a.area > b.area
   end)
-  -- Upgrade the main display once; later role choices remain explicit.
-  if K.cfg.screenLayout < 2 and mons[1] and mons[1].color then
-    local conf = K.cfg.screens[mons[1].name] or {}
-    if not conf.role or conf.role == "mirror" or conf.role == "desktop" then conf.role = "picture"; conf.scale = "auto" end
-    K.cfg.screens[mons[1].name] = conf
-    K.cfg.screenLayout = 2
-    K.saveConfig()
-  end
-  K.primaryMonitorName=mons[1]and mons[1].color and mons[1].name or nil
-  for _,m in ipairs(mons)do if m.color and m.name==K.cfg.mainMonitor then K.primaryMonitorName=m.name;break end end
-  -- The biggest advanced monitor is a touch-only hub; the rest are panels.
+  K.primaryMonitorName = mons[1] and mons[1].color and mons[1].name or nil
+  -- The biggest advanced monitor runs Big Picture; the rest are panels.
   local first = true
   for _, x in ipairs(mons) do
-    if x.name==K.primaryMonitorName and K.cfg.fullSync then
-      K.cfg.screens[x.name]=K.cfg.screens[x.name]or {};K.cfg.screens[x.name].role="mirror";K.cfg.screens[x.name].scale="auto"
-    end
-    make(x.name, x.m, "monitor", (x.color and first) and "picture" or "panel")
+    make(x.name, x.m, "monitor", (x.color and first) and "picture" or "panel", x.color)
     if x.color then first = false end
   end
+  local monitorPicture = false
+  for _, s in ipairs(list) do if s.kind == "monitor" and s.role == "picture" then monitorPicture = true end end
+  home.role = K.device.pocket and "pocket" or (monitorPicture and "console" or "picture")
+  local old = screens
   screens, screenByName = list, byName
   K.screens = list
   for _, s in ipairs(list) do
     if s.role ~= "off" then setupScreen(s) end
   end
-  local home = K.homeScreen()
+  local dest = K.homeScreen()
+  -- Prompts and apps on a screen that left Big Picture follow to the new one.
+  for _, s in ipairs(old) do
+    if s ~= dest and (byName[s.name] ~= s or not hosts(s)) and s.dialogs and #s.dialogs > 0 and s.role ~= "console" then
+      dest.dialogs = dest.dialogs or {}
+      for _, d in ipairs(s.dialogs) do d.screen = dest; dest.dialogs[#dest.dialogs + 1] = d end
+      s.dialogs = {}
+    end
+  end
+  for _, s in ipairs(old) do
+    -- Big Picture carries on where it was: the same page or app in front.
+    if s ~= dest and s.picture and (byName[s.name] ~= s or not hosts(s)) and dest.role == "picture" then
+      local was, now = s.picture, dest.picture
+      if not now or now.view == "home" then
+        dest.picture = { view = was.view or "home", page = 1, path = was.path or "/", appPid = was.appPid, settingsPage = was.settingsPage }
+      end
+      s.picture = nil
+    end
+  end
   for _, w in ipairs(wins) do
-    if not byName[w.screen.name] or (w.screen.role ~= "desktop" and w.screen.role ~= "picture") then w.screen = home end
+    if byName[w.screen.name] ~= w.screen or not hosts(w.screen) then w.screen = dest end
     layout(w)
   end
   if markAll then markAll() end
-end
-
-function K.pictureScreen()
-  if K.device.pocket then return nil end
-  local s=K.primaryMonitorName and screenByName[K.primaryMonitorName]
-  if s and s.role=="picture"then return s end
-  for _,candidate in ipairs(screens)do if candidate.kind=="monitor"and candidate.role=="picture"then return candidate end end
-end
-function K.setFullSync(enabled)
-  local current=K.pictureScreen()
-  local name=current and current.name or K.primaryMonitorName
-  if not name then return false,"No advanced monitor is connected"end
-  K.cfg.fullSync=enabled==true;K.cfg.mainMonitor=name
-  local conf=K.cfg.screens[name]or {};conf.role=enabled and "mirror"or "picture";conf.scale="auto";K.cfg.screens[name]=conf
-  K.saveConfig();K.buildScreens();return true
 end
 
 ------------------------------------------------------------------------
 -- Windows
 ------------------------------------------------------------------------
 
-local function workHeight(s) return s.h - s.taskH end
-
+-- Apps always fill their screen: below the title bar in Big Picture and
+-- between the pocket launcher's top and bottom bars.
 function layout(w)
   local s = w.screen
-  local ah = workHeight(s)
-  if s.kind=="term"and K.device.pocket then
-    w.state="max";w.x,w.y,w.w,w.h=1,1,s.w,max(3,s.h-2)
-  elseif s.role == "picture" then
-    w.x, w.y, w.w, w.h = 1, 1, max(12, s.w), max(3, s.h - 2)
-  elseif w.state == "max" then
-    w.x, w.y, w.w, w.h = 1, 1, s.w, ah - 1
-  elseif w.state == "left" or w.state == "right" then
-    local half = floor(s.w / 2)
-    w.y, w.h = 1, ah - 1
-    if w.state == "left" then w.x, w.w = 1, half else w.x, w.w = half + 1, s.w - half end
+  w.state = "max"
+  if s.role == "pocket" then
+    w.x, w.y, w.w, w.h = 1, 1, s.w, max(3, s.h - 2)
   else
-    w.w = clamp(w.w, 12, s.w)
-    w.h = clamp(w.h, 3, ah - 1)
-    w.x = clamp(w.x, 1, s.w - w.w + 1)
-    w.y = clamp(w.y, 1, ah - w.h)
+    w.x, w.y, w.w, w.h = 1, 1, max(12, s.w), max(3, s.h - 1)
   end
   local bw, bh = w.buf.getSize()
   if bw ~= w.w or bh ~= w.h then
@@ -560,26 +569,14 @@ function layout(w)
 end
 K.layout = layout
 
-local function windowsOn(s)
-  local list = {}
-  for _, w in ipairs(wins) do if w.screen == s then list[#list + 1] = w end end
-  return list
-end
-
 function newWindow(p, o)
   local s = o.screen or K.activeScreen()
-  local ah = workHeight(s)
-  local w = { id = p.id, proc = p, screen = s, title = o.title or p.title, app = p.app, state = "normal", opened = now() }
-  local grow = (s.touch and s.w >= 120) and 1.3 or 1
-  w.w, w.h = min(floor((o.w or 60) * grow), s.w), min(floor((o.h or 20) * grow), ah - 1)
-  if s.w < 60 or w.w >= s.w - 2 or w.h >= ah - 2 then w.state = "max" end
-  local n = #windowsOn(s)
-  w.x = floor((s.w - w.w) / 2) + 1 + (n % 5) * 3 - 6
-  w.y = floor((ah - w.h) / 2) + (n % 5) - 1
+  local w = { id = p.id, proc = p, screen = s, title = o.title or p.title, app = p.app, state = "max", opened = now() }
+  w.w, w.h = s.w, s.h
   w.buf = makeBuffer(w.w, w.h)
-  wins[#wins + 1] = w
+  if o.background then table.insert(wins, 1, w) else wins[#wins + 1] = w end
   layout(w)
-  K.focusWindow(w)
+  if not o.background then K.focusWindow(w) end
   return w
 end
 
@@ -589,9 +586,17 @@ function K.focusWindow(w)
     if x == w then table.remove(wins, i); break end
   end
   wins[#wins + 1] = w
-  if w.state == "min" then w.state = w.restore or "normal"; layout(w) end
+  w.state = "max"
   K.focus = w
-  markDirty(w.screen)
+  local s = w.screen
+  if s.role == "picture" and w.app then
+    s.picture = s.picture or { view = "home", page = 1, path = "/" }
+    s.picture.view, s.picture.appPid, s.picture.flyout = w.app.id, w.id, nil
+  elseif s.role == "pocket" then
+    s.pocketHome = false
+  end
+  -- The keyboard console shows what is in front, so it redraws too.
+  markAll()
 end
 
 function removeWindow(w)
@@ -599,14 +604,18 @@ function removeWindow(w)
     if x == w then table.remove(wins, i); break end
   end
   if capture and capture.win == w then capture = nil end
-  if K.drag and K.drag.win == w then K.drag = nil end
+  local s = w.screen
+  if s.picture and s.picture.appPid == w.id then
+    s.picture.appPid = nil
+    if s.picture.view == (w.app and w.app.id) then s.picture.view = "home" end
+  end
   if K.focus == w then
     K.focus = nil
     for i = #wins, 1, -1 do
-      if wins[i].screen == w.screen and wins[i].state ~= "min" then K.focus = wins[i]; break end
+      if wins[i].screen == s then K.focus = wins[i]; break end
     end
   end
-  markDirty(w.screen)
+  markAll()
 end
 
 function K.closeWindow(w)
@@ -615,71 +624,25 @@ function K.closeWindow(w)
   K.sfx("close")
 end
 
+-- Minimise leaves the app running and returns its screen to Start.
 function K.minimize(w)
-  if w.state ~= "min" then w.restore = w.state end
-  w.state = "min"
-  if K.focus == w then
-    K.focus = nil
-    for i = #wins, 1, -1 do
-      if wins[i] ~= w and wins[i].screen == w.screen and wins[i].state ~= "min" then K.focus = wins[i]; break end
-    end
+  local s = w.screen
+  if s.picture and s.picture.appPid == w.id then
+    s.picture.view, s.picture.appPid = "home", nil
+  elseif s.role == "pocket" then
+    s.pocketHome = true
   end
-  markDirty(w.screen)
+  markAll()
 end
 
-function K.toggleMax(w)
-  if w.state == "max" then w.state = "normal" else w.state = "max" end
-  layout(w)
-  K.focusWindow(w)
-end
-
-function K.snap(w, side)
-  w.state = (w.state == side) and "normal" or side
-  layout(w)
-  K.focusWindow(w)
-end
-
-local function desktops()
-  local list = {}
-  for _, s in ipairs(screens) do if s.role == "desktop" then list[#list + 1] = s end end
-  return list
-end
-
-function K.moveToScreen(w, s)
-  local old = w.screen
-  w.screen = s
-  if w.state == "normal" then
-    w.x, w.y = floor((s.w - w.w) / 2) + 1, 2
-  end
-  layout(w)
-  K.focusWindow(w)
-  markDirty(old)
-end
-
-function K.moveToNextScreen(w)
-  local ds = desktops()
-  for i, s in ipairs(ds) do
-    if s == w.screen then return K.moveToScreen(w, ds[i % #ds + 1]) end
-  end
-end
-
--- Keys go to the top window on the computer's screen, which is the one
--- the player can see while typing; failing that, the focused window.
+-- Keys go to the app in front: the one Big Picture shows full screen, or
+-- the open pocket app.
 function K.keyTarget()
-  if K.device.pocket and screenByName.term.pocketHome then return end
-  if K.focus and K.focus.screen.kind == "term" and K.focus.state ~= "min" then return K.focus end
-  for i = #wins, 1, -1 do
-    local w = wins[i]
-    if w.screen.kind == "term" and w.state ~= "min" then return w end
-  end
-  if K.focus and K.focus.screen.role ~= "picture" and K.focus.state ~= "min" then return K.focus end
-end
-
-function K.cycleFocus()
+  local ps = K.pictureScreen()
+  if ps then return K.pictureApp(ps) end
   local s = screenByName.term
-  local list = windowsOn(s)
-  if #list == 0 then return end
-  K.focusWindow(list[1])
+  if s.pocketHome then return end
+  if K.focus and K.focus.screen == s and not K.focus.proc.dead then return K.focus end
 end
 
 ------------------------------------------------------------------------
@@ -716,12 +679,9 @@ local nextDialog = 1
 -- cb(index, text). Also queues ccos_dialog id index text.
 function K.dialog(o)
   local s = o.screen or K.activeScreen()
-  -- Big Picture keeps the prompt on the monitor and bridges its field to
-  -- the computer input console. Other monitor roles use a desktop prompt.
-  if o.input and s.kind ~= "term" and s.role~="picture" then
-    K.notify("Type on the computer", o.title or "", { icon = "terminal", quiet = true, time = 6000 })
-    s = screenByName.term
-  end
+  -- Prompts show where they were asked; a monitor's text field is typed on
+  -- the computer's keyboard console.
+  if s.role ~= "picture" and s.role ~= "pocket" and s.role ~= "console" then s = K.homeScreen() end
   local d = { id = nextDialog, title = o.title or "ccOS", text = o.text or "", buttons = o.buttons or { "OK" },
     cb = o.cb, screen = s, owner = not o.detached and running or nil, enterChoice=o.enterChoice }
   nextDialog = nextDialog + 1
@@ -867,498 +827,57 @@ local function gameClock()
 end
 K.gameClock = gameClock
 
--- The splash while booting.
+-- The splash while booting: the Start colour, a light "ccOS" and the
+-- 8.1 progress ring, then a welcome for the user.
 local function drawSplash(s)
-  -- the same key drawWall uses, so an ccos desktop reuses this one
-  local key = "ccos" .. s.w .. "x" .. s.h
-  if s.wallKey ~= key then
-    s.wall, s.wallKey = gfx.wallpaper("ccos", s.w, s.h), key
-  end
-  for y = 1, s.h do
-    local r = s.wall[y]
-    B.setCursorPos(1, y)
-    B.blit(r[1], r[2], r[3])
-  end
-  local scale = 1
-  for k = 6, 1, -1 do
-    local logo = gfx.logo(k)
-    if gfx.cellsWidth(logo) <= s.w * 0.6 and #logo <= s.h * 0.4 then scale = k; break end
-  end
-  local logo = gfx.logo(scale)
-  local lw = gfx.cellsWidth(logo)
-  local ly = max(1, floor((s.h - #logo) / 2) - 1)
-  gfx.drawCells(B, floor((s.w - lw) / 2) + 1, ly, logo)
+  fill(1, 1, s.w, s.h, T.select)
   local frac = clamp((now() - K.bootStart) / 2200, 0, 1)
-  local bw = min(s.w - 4, max(16, lw))
-  local bx, by = floor((s.w - bw) / 2) + 1, ly + #logo + 1
-  if by <= s.h then
-    fill(bx, by, bw, 1, T.surface)
-    fill(bx, by, floor(bw * frac + 0.5), 1, T.accent)
+  local M = gfx.metro
+  local big = s.w >= 60 and s.h >= 24
+  local title = M.markCells(M.textRows("ccOS", big and 2 or 1), HEX[T.text], HEX[T.select], 0, 0)
+  local ring, rw = powerAnimation.ring(s.w, s.h, floor((now() - K.bootStart) / 60), HEX[T.select], HEX[T.text], big and 8 or 5)
+  local msg = frac < 0.7 and "Starting ccOS" or ("Welcome, " .. K.cfg.user)
+  local tw = gfx.cellsWidth(title)
+  local h = #title + 2 + #ring + 2
+  local y = max(1, floor((s.h - h) / 2) + 1)
+  if tw <= s.w and h <= s.h then
+    gfx.drawCells(B, floor((s.w - tw) / 2) + 1, y, title)
+    gfx.drawCells(B, floor((s.w - rw) / 2) + 1, y + #title + 2, ring)
+    put(max(1, floor((s.w - #msg) / 2) + 1), min(s.h, y + h - 1), trunc(msg, s.w), T.text, T.select)
+  else
+    put(max(1, floor((s.w - 4) / 2) + 1), max(1, floor(s.h / 2)), "ccOS", T.text, T.select)
   end
-  if by + 2 <= s.h then
-    local msg = frac < 0.4 and "Waking the screens" or (frac < 0.8 and "Tuning the speakers" or "Welcome")
-    put(floor((s.w - #msg) / 2) + 1, by + 2, msg, T.muted, T.bg)
-  end
-end
-
-local function drawWall(s)
-  local key = K.cfg.wallpaper .. s.w .. "x" .. s.h
-  if s.wallKey ~= key then
-    s.wall, s.wallKey = gfx.wallpaper(K.cfg.wallpaper, s.w, s.h), key
-  end
-  for y = 1, s.h do
-    local r = s.wall[y]
-    B.setCursorPos(1, y)
-    B.blit(r[1], r[2], r[3])
-  end
-end
-
--- Text straight onto the wallpaper, keeping its colours behind.
-local function wallText(s, x, y, text, fg)
-  if y < 1 or y > s.h then return end
-  local row = s.wall[y]
-  local bgs = row[3]:sub(x, x + #text - 1)
-  if #bgs < #text then bgs = bgs .. ("f"):rep(#text - #bgs) end
-  B.setCursorPos(x, y)
-  B.blit(text, (HEX[fg or T.text]):rep(#text), bgs)
-end
-
-local function drawIcons(s)
-  local big = s.w >= 100 and s.h >= 30
-  local scale, iw, ih = big and 2 or 1, big and 8 or 4, big and 4 or 2
-  local slotW, slotH = big and 14 or 12, ih + 3
-  local rows = max(1, floor((workHeight(s) - 1) / slotH))
-  for i, id in ipairs(K.cfg.desktop) do
-    local app = appById(id)
-    if app then
-      local col, row = floor((i - 1) / rows), (i - 1) % rows
-      local x, y = 2 + col * slotW, 2 + row * slotH
-      if x + slotW - 1 <= s.w and y + ih <= workHeight(s) then
-        gfx.icon(B, x + floor((slotW - iw) / 2), y, app.id, scale)
-        local label = trunc(app.name, slotW)
-        local labelW=min(slotW,#label+2)
-        local labelX=x+floor((slotW-labelW)/2)
-        fill(labelX,y+ih,labelW,1,T.bg)
-        put(labelX+floor((labelW-#label)/2),y+ih,label,T.text,T.bg)
-        hit(x, y, x + slotW - 1, y + ih + 1, function() K.launch(app.id, nil, { screen = s }) end)
-      end
-    end
-  end
-end
-
-local lastTitleClick = { t = 0 }
-
-local function drawWindow(s, w)
-  local focused = K.focus == w
-  local x, y, ww, wh = w.x, w.y, w.w, w.h
-  if K.cfg.shadows and w.state == "normal" then
-    shade(x + 1, y + wh + 1, ww, 1)
-    shade(x + ww, y + 1, 1, wh + 1)
-  end
-  local tb = focused and T.raised or T.surface
-  local tf = focused and T.text or T.muted
-  fill(x, y, ww, 1, tb)
-  local g = gfx.GLYPHS[w.app and w.app.id or ""] or { "\7", T.accent }
-  put(x + 1, y, g[1], focused and g[2] or T.muted, tb)
-  local bw = s.touch and 5 or 3
-  local bx = x + ww - 4 * bw
-  put(x + 3, y, trunc(w.title, max(0, bx - x - 4)), tf, tb)
-  hit(x, y, bx - 1, y, function(hx, hy, btn, kind)
-    K.focusWindow(w)
-    if kind == "click" then
-      local t = now()
-      if lastTitleClick.win == w and t - lastTitleClick.t < 400 then
-        K.toggleMax(w)
-        lastTitleClick.t = 0
-        return
-      end
-      lastTitleClick.win, lastTitleClick.t = w, t
-      K.drag = { kind = "move", win = w, dx = hx - w.x, dy = hy - w.y }
-    end
-  end)
-  local labels = { "\4", "-", w.state == "normal" and "\30" or "\31", "\215" }
-  local actions = {
-    function() K.windowMenu(w, s) end,
-    function() K.minimize(w) end,
-    function() K.toggleMax(w) end,
-    function() K.closeWindow(w) end,
-  }
-  for i = 1, 4 do
-    local cx = bx + (i - 1) * bw
-    local fg = (i == 4 and focused) and T.danger or tf
-    put(cx, y, centre(labels[i], bw), fg, tb)
-    hit(cx, y, cx + bw - 1, y, actions[i])
-  end
-  for row = 1, wh do
-    local t, f, b = w.buf.getLine(row)
-    if t then
-      B.setCursorPos(x, y + row)
-      B.blit(t, f, b)
-    end
-  end
-  hit(x, y + 1, x + ww - 1, y + wh, nil, { content = w })
-  if not s.touch and w.state == "normal" then
-    put(x + ww, y + wh + 1, "\127", T.muted, T.bg)
-    hit(x + ww, y + wh + 1, x + ww, y + wh + 1, function(_, _, _, kind)
-      if kind == "click" then K.drag = { kind = "resize", win = w } end
-    end)
-  end
-end
-
-local function trayItems(s)
-  local items = {}
-  local info = audio.info()
-  if K.agent and (K.agent.busy or K.agent.configured())then
-    items[#items+1]={label=K.agent.pending and "AI!"or(K.agent.busy and "AI.."or "AI"),color=T.accent,fn=function()K.launch("agent",{}, {screen=screenByName.term})end}
-  end
-  if info.state ~= "stopped" or info.disc then
-    local name = info.disc and info.discTitle or info.title or "Music"
-    local glyph = info.state == "playing" and "\16" or "\14"
-    items[#items + 1] = { label = glyph .. " " .. trunc(name, s.w >= 100 and 22 or 9), color = T.accent2,
-      fn = function(x) K.musicPopup(s, x) end }
-  end
-  for _, d in ipairs(K.hw.drives or {}) do
-    if d.present then
-      items[#items + 1] = { label = "\8 " .. trunc(d.label or (d.audio and "Record") or "Disk", s.w >= 100 and 12 or 6),
-        color = T.text, fn = function(x) K.drivePopup(s, x, d) end }
-    end
-  end
-  local pr = (K.hw.printers or {})[1]
-  if pr and s.w >= 60 then
-    local low = (pr.paper or 0) < 4 or (pr.ink or 0) < 4
-    items[#items + 1] = { label = "\20", color = low and T.warn or T.muted, fn = function() K.launch("print", nil, { screen = s }) end }
-  end
-  local vol = floor((K.cfg.musicVolume or 0) * 100 + 0.5)
-  items[#items + 1] = { label = "\17" .. vol .. "%", color = T.muted, fn = function(x) K.volumePopup(s, x) end }
-  items[#items + 1] = { label = "\7" .. (K.unread > 0 and (" " .. K.unread) or ""), color = K.unread > 0 and T.accent or T.muted,
-    fn = function(x) K.notificationPopup(s, x) end }
-  return items
-end
-
-local function drawTaskbar(s)
-  local th = s.taskH
-  local y0 = s.h - th + 1
-  local my = y0 + floor((th - 1) / 2)
-  fill(1, y0, s.w, th, T.surface)
-  -- Start button
-  local wide = s.w >= 70
-  local startW = wide and 7 or 5
-  fill(1, y0, startW, th, s.menu and T.accent2 or T.accent)
-  local markH=th>=3 and 5 or 3
-  local pixels=gfx.canvas(startW*2,th*3,HEX[s.menu and T.accent2 or T.accent])
-  local px,py=startW-2,floor((th*3-markH)/2)+1
-  for yy=1,markH do for xx=1,6 do
-    if xx==3 or xx==4 or yy==ceil(markH/2)then pixels.set(px+xx-1,py+yy-1,HEX[T.bg])end
-  end end
-  gfx.drawCells(B,1,y0,gfx.cells(pixels.rows(),HEX[s.menu and T.accent2 or T.accent]))
-  hit(1, y0, startW, s.h, function() K.toggleStart(s) end)
-  -- Clock and tray, right to left
-  local rx = s.w
-  local ct = clockText(K.cfg.seconds)
-  local cw = #ct + 2
-  rx = rx - cw + 1
-  put(rx, my, centre(ct, cw), T.text, T.surface)
-  if th >= 3 then put(rx, my + 1, centre(clock.date(K.cfg, "%d %b"), cw), T.muted, T.surface) end
-  hit(rx, y0, s.w, s.h, function() K.launch("clock", nil, { screen = s }) end)
-  local items = trayItems(s)
-  for i = #items, 1, -1 do
-    local it = items[i]
-    local w = #it.label + 2
-    if rx - w < startW + 12 then break end
-    rx = rx - w
-    put(rx, my, " " .. it.label .. " ", it.color, T.surface)
-    local ix = rx
-    hit(rx, y0, rx + w - 1, s.h, function() it.fn(ix) end)
-  end
-  if s.w >= 60 then
-    local label = " \16 Run "
-    rx = rx - #label - 1
-    if rx > startW + 12 then
-      put(rx, my, label, T.muted, T.surface)
-      hit(rx, y0, rx + #label - 1, s.h, function() K.togglePalette(s) end)
-    else
-      rx = rx + #label + 1
-    end
-  end
-  -- Window buttons
-  local list = windowsOn(s)
-  table.sort(list, function(a, b) return a.opened < b.opened end)
-  local x = startW + 2
-  local avail = rx - x - 1
-  if #list > 0 and avail > 4 then
-    local bw = clamp(floor(avail / #list), 5, 26)
-    for _, w in ipairs(list) do
-      if x + bw - 1 > rx - 1 then break end
-      local focused = K.focus == w
-      local bg = focused and T.raised or T.surface
-      fill(x, y0, bw - 1, th, bg)
-      local g = gfx.GLYPHS[w.app and w.app.id or ""] or { "\7", T.accent }
-      put(x + 1, my, g[1], w.state == "min" and T.muted or g[2], bg)
-      put(x + 3, my, trunc(w.title, bw - 5), w.state == "min" and T.muted or T.text, bg)
-      if focused then fill(x, y0 + th - 1, bw - 1, 1, T.accent) end
-      if focused and th == 1 then put(x, y0, " ", T.text, T.accent) end
-      hit(x, y0, x + bw - 2, s.h, function()
-        if K.focus == w and w.state ~= "min" then K.minimize(w) else K.focusWindow(w) end
-      end)
-      x = x + bw
-    end
-  end
-end
-
-local function visibleApps(search, category)
-  local list = {}
-  search = (search or ""):lower()
-  for _, a in ipairs(APPS) do
-    local matchesCategory = not category or category == "All" or a.category == category
-    if category == "Favorites" then for _,id in ipairs(K.cfg.desktop)do if id==a.id then matchesCategory=true end end end
-    if not a.hidden and matchesCategory and (search == "" or a.name:lower():find(search, 1, true) or a.id:find(search, 1, true)) then
-      list[#list + 1] = a
-    end
-  end
-  return list
-end
-
-local function drawStartMenu(s)
-  local m = s.menu
-  local th = s.taskH
-  local mw = min(s.w, 50)
-  local apps = visibleApps(m.search, m.search ~= "" and "All" or (m.category or "All"))
-  local cols = mw >= 44 and 2 or 1
-  local tileW, tileH = floor((mw - 2) / cols), 3
-  local maxH = workHeight(s) - 1
-  local gridRows = ceil(#apps / cols)
-  local mh = min(maxH, 7 + gridRows * tileH)
-  local x0, y0 = 1, s.h - th - mh + 1
-  hit(1, 1, s.w, s.h, function() s.menu = nil end)
-  fill(x0, y0, mw, mh, T.surface)
-  fill(x0, y0, mw, 1, T.raised)
-  put(x0 + 1, y0, trunc(greeting() .. ", " .. K.cfg.user, mw - 10), T.text, T.raised)
-  local date = clock.date(K.cfg, "%a %d %b")
-  if mw > #date + 20 then put(x0 + mw - #date - 1, y0, date, T.muted, T.raised) end
-  local query = (m.search ~= "" and m.search) or "Type to search apps"
-  put(x0 + 1, y0 + 1, "\16 ", T.accent, T.surface)
-  put(x0 + 3, y0 + 1, trunc(query, mw - 4), m.search ~= "" and T.text or T.muted, T.surface)
-  hit(x0, y0, x0 + mw - 1, y0 + mh - 1, function() end)
-  local categories={"All"};for _,name in ipairs(catalog.categories)do categories[#categories+1]=name end
-  local index=1;for i,name in ipairs(categories)do if name==(m.category or "All")then index=i end end
-  put(x0+2,y0+2,"Category: "..(m.category or "All"),T.accent,T.surface)
-  button(x0+mw-9,y0+2," < ",T.text,T.raised,function()m.category=categories[(index-2)%#categories+1];m.scroll=0 end)
-  button(x0+mw-5,y0+2," > ",T.text,T.raised,function()m.category=categories[index%#categories+1];m.scroll=0 end)
-  local gy = y0 + 3
-  local visible = max(1, floor((mh - 7) / tileH))
-  m.scroll = clamp(m.scroll or 0, 0, max(0, gridRows - visible))
-  if gridRows > visible then
-    hit(x0, gy, x0 + mw - 1, gy + visible * tileH - 1, nil, {
-      scroll = function(dir) m.scroll = (m.scroll or 0) + dir end,
-    })
-  end
-  for i, a in ipairs(apps) do
-    local r = floor((i - 1) / cols) - m.scroll
-    local c = (i - 1) % cols
-    if r >= 0 and r < visible then
-      local tx, ty = x0 + 1 + c * tileW, gy + r * tileH
-      gfx.icon(B, tx, ty, a.id)
-      put(tx + 5, ty, trunc(a.name, tileW - 6), T.text, T.surface)
-      put(tx + 5, ty + 1, trunc(a.desc or "", tileW - 6), T.muted, T.surface)
-      hit(tx, ty, tx + tileW - 2, ty + tileH - 1, function()
-        s.menu = nil
-        K.launch(a.id, nil, { screen = s })
-      end)
-    end
-  end
-  if gridRows > visible then
-    -- Scroll-only regions must not mask the tile click handlers above.
-    local py = y0 + mh - 2
-    button(x0 + 1, py, " < Prev ", T.text, T.raised, function() m.scroll = max(0, m.scroll - visible) end)
-    button(x0 + mw - 9, py, " Next > ", T.text, T.raised, function() m.scroll = min(gridRows - visible, m.scroll + visible) end)
-  end
-  -- A dedicated mode row keeps the action separate from app pagination/power.
-  local modeY=y0+mh-3
-  local label=" Big Picture "
-  local modeX=x0+floor((mw-#label)/2)
-  if K.primaryMonitorName then
-    button(modeX,modeY,label,T.bg,T.accent,function()
-      s.menu=nil;K.palette=nil
-      local ok=K.setFullSync(false)
-      if ok then local target=K.pictureScreen();if target then target.picture={view="home",page=1,path="/",category="Favorites"}end;markAll()end
-    end)
-  else put(modeX,modeY,label,T.muted,T.surface)end
-  -- Power row
-  local py = y0 + mh - 1
-  fill(x0, py, mw, 1, T.raised)
-  local bx = x0 + 1
-  bx = button(bx, py, " Settings ", T.text, T.raised, function() s.menu = nil; K.launch("settings", nil, { screen = s }) end) + 1
-  bx = button(bx, py, " Run ", T.text, T.raised, function() s.menu = nil; K.togglePalette(s) end) + 1
-  local right = { { " Exit ", function() K.confirmPower(s, "exit") end },
-    { " Restart ", function() K.confirmPower(s, "reboot") end },
-    { " Off ", function() K.confirmPower(s, "shutdown") end } }
-  local rx = x0 + mw - 1
-  for i = #right, 1, -1 do
-    local label = right[i][1]
-    rx = rx - #label
-    if rx <= bx then break end
-    button(rx, py, label, i == 3 and T.danger or T.muted, T.raised, right[i][2])
-    rx = rx - 1
-  end
-end
-
-local function drawPopup(s)
-  local p = s.popup
-  local w = 0
-  for _, it in ipairs(p.items) do w = max(w, #it.label) end
-  if p.title then w = max(w, #p.title) end
-  w = min(s.w - 2, w + 4)
-  local h = #p.items + (p.title and 1 or 0)
-  local x = clamp(p.x, 1, s.w - w + 1)
-  local y = p.y or (workHeight(s) - h + 1)
-  y = clamp(y, 1, workHeight(s) - h + 1)
-  hit(1, 1, s.w, s.h, function() s.popup = nil end)
-  shade(x + 1, y + h, w, 1)
-  shade(x + w, y + 1, 1, h)
-  fill(x, y, w, h, T.surface)
-  local yy = y
-  if p.title then
-    fill(x, yy, w, 1, T.raised)
-    put(x + 1, yy, trunc(p.title, w - 2), T.accent, T.raised)
-    yy = yy + 1
-  end
-  for _, it in ipairs(p.items) do
-    put(x + 2, yy, trunc(it.label, w - 3), it.disabled and T.muted or (it.color or T.text), T.surface)
-    if not it.disabled and it.fn then
-      local fn = it.fn
-      hit(x, yy, x + w - 1, yy, function()
-        if not it.stay then s.popup = nil end
-        fn()
-      end)
-    else
-      hit(x, yy, x + w - 1, yy, function() end)
-    end
-    yy = yy + 1
-  end
-end
-
-function K.popup(s, x, y, items, title)
-  s.popup = { x = x, y = y, items = items, title = title }
-  s.menu = nil
-  markDirty(s)
-end
-
-function K.windowMenu(w, s)
-  local items = {
-    { label = w.state == "max" and "Restore" or "Maximise", fn = function() K.toggleMax(w) end },
-    { label = "Snap left", fn = function() K.snap(w, "left") end },
-    { label = "Snap right", fn = function() K.snap(w, "right") end },
-    { label = "Minimise", fn = function() K.minimize(w) end },
-  }
-  if s.touch and w.state == "normal" then
-    items[#items + 1] = { label = "Move (tap a spot)", fn = function() K.moveMode = { win = w, screen = s } end }
-  end
-  for _, d in ipairs(desktops()) do
-    if d ~= w.screen then
-      items[#items + 1] = { label = "Move to " .. (d.kind == "term" and "computer" or d.name), fn = function() K.moveToScreen(w, d) end }
-    end
-  end
-  items[#items + 1] = { label = "Close", color = T.danger, fn = function() K.closeWindow(w) end }
-  K.popup(s, w.x + w.w - 4 * (s.touch and 5 or 3), w.y + 1, items, w.title)
-end
-
-function K.musicPopup(s, x)
-  local info = audio.info()
-  local items = {}
-  if info.disc then
-    items[#items + 1] = { label = "Stop the record", fn = function() audio.stopDisc() end }
-  end
-  if info.state ~= "stopped" then
-    items[#items + 1] = { label = info.state == "playing" and "Pause" or "Play", fn = audio.toggle }
-    items[#items + 1] = { label = "Next", fn = audio.next }
-    items[#items + 1] = { label = "Previous", fn = audio.prev }
-    items[#items + 1] = { label = "Stop", fn = audio.stop }
-  end
-  items[#items + 1] = { label = "Open Music", fn = function() K.launch("music", nil, { screen = s }) end }
-  K.popup(s, x, nil, items, info.title or info.discTitle or "Music")
-end
-
-function K.volumePopup(s, x)
-  local function pct() return floor((K.cfg.musicVolume or 0) * 100 + 0.5) .. "%" end
-  local function bal()
-    local b = floor((K.cfg.balance or 0) * 100 + 0.5)
-    return b == 0 and "centre" or (b < 0 and (-b .. "% left") or (b .. "% right"))
-  end
-  local items
-  items = {
-    { label = "Louder (" .. pct() .. ")", stay = true, fn = function() audio.setVolume((K.cfg.musicVolume or 0) + 0.1); items[1].label = "Louder (" .. pct() .. ")"; items[2].label = "Quieter (" .. pct() .. ")" end },
-    { label = "Quieter (" .. pct() .. ")", stay = true, fn = function() audio.setVolume((K.cfg.musicVolume or 0) - 0.1); items[1].label = "Louder (" .. pct() .. ")"; items[2].label = "Quieter (" .. pct() .. ")" end },
-    { label = "Balance left", stay = true, fn = function() audio.setBalance((K.cfg.balance or 0) - 0.25); items[5].label = "Balance: " .. bal() end },
-    { label = "Balance right", stay = true, fn = function() audio.setBalance((K.cfg.balance or 0) + 0.25); items[5].label = "Balance: " .. bal() end },
-    { label = "Balance: " .. bal(), disabled = true },
-    { label = (K.cfg.sounds and "Mute" or "Unmute") .. " system sounds", fn = function() K.cfg.sounds = not K.cfg.sounds; K.saveConfig() end },
-    { label = "Test left speaker", stay = true, fn = function() audio.note("bell", 12, -1, 1.5) end },
-    { label = "Test right speaker", stay = true, fn = function() audio.note("bell", 12, 1, 1.5) end },
-  }
-  K.popup(s, x, nil, items, "Sound")
-end
-
-function K.drivePopup(s, x, d)
-  local items = {}
-  if d.mount then
-    items[#items + 1] = { label = "Open /" .. d.mount, fn = function() K.launch("files", { "/" .. d.mount }, { screen = s }) end }
-  end
-  if d.audio then
-    items[#items + 1] = { label = "Play " .. trunc(d.audio, 24), fn = function() audio.playDisc(d.name) end }
-    items[#items + 1] = { label = "Stop the record", fn = function() audio.stopDisc() end }
-  end
-  if d.mount then
-    items[#items + 1] = { label = "Label...", fn = function()
-      K.spawn(function()
-        local text = K.api.prompt("Label the disk", "New label", d.label or "")
-        if text then pcall(peripheral.call, d.name, "setDiskLabel", text ~= "" and text or nil); os.queueEvent("ccos_hw") end
-      end, { title = "Label" })
-    end }
-  end
-  items[#items + 1] = { label = "Eject", color = T.warn, fn = function()
-    K.spawn(function() pcall(peripheral.call, d.name, "ejectDisk") end, { title = "Eject" })
-  end }
-  K.popup(s, x, nil, items, d.label or (d.audio and "Record") or "Disk")
-end
-
-function K.notificationPopup(s, x)
-  K.unread = 0
-  local items = {}
-  for i = 1, min(10, #K.notifs) do
-    local n = K.notifs[i]
-    items[#items + 1] = { label = clock.format(K.cfg, false, floor(n.t / 1000)) .. " " .. trunc(n.title .. (n.text ~= "" and (": " .. n.text) or ""), 44),
-      color = n.color, fn = n.action }
-  end
-  if #items == 0 then items[1] = { label = "Nothing new", disabled = true } end
-  items[#items + 1] = { label = "Clear all", color = T.muted, fn = function() K.notifs = {}; K.toasts = {} end }
-  K.popup(s, x, nil, items, "Notifications")
-end
-
-function K.toggleStart(s)
-  if K.device.pocket and s.kind=="term"then pocketUI.home();return end
-  if s.menu then s.menu = nil else s.menu = { search = "" }; s.popup = nil end
+  -- Keep the ring turning until boot finishes.
   markDirty(s)
 end
 
 function K.confirmPower(s, what)
-  s.menu = nil
   local words = { exit = "Exit to CraftOS", reboot = "Restart the computer", shutdown = "Shut down the computer" }
-  K.dialog({ screen = s, title = words[what] .. "?", text = "Open windows will close.", buttons = { "Cancel", words[what] },
+  K.dialog({ screen = s, title = words[what] .. "?", text = "Open apps will close and unsaved work is lost.", buttons = { "Cancel", words[what] },
     cb = function(i)
       if i == 2 then K.power = what; K.running = false end
     end })
 end
 
+-- Big Picture: a Windows 8.1 message band across the full width (drawn by
+-- the picture module so dialogs and its own prompts look the same).
+local function drawBand(s, d)
+  local buttons = {}
+  for i, label in ipairs(d.buttons) do buttons[i] = { label, function() answer(s, d, i) end } end
+  picture.band(s, d.title or "", d.text or "", buttons, nil, { field = d.field, primary = d.choice or d.enterChoice or #d.buttons })
+end
+
 local function drawDialog(s, d)
+  if s.role == "picture" and s.w >= 40 then return drawBand(s, d) end
   local w = min(s.w - (K.device.pocket and 2 or 4), 52)
   local total=0;for _,label in ipairs(d.buttons)do total=total+#label+3 end
   local stacked=total>w-2
   local extra=stacked and #d.buttons-1 or 0
   local lines=wrap(d.text,w-4)
-  local maxLines=max(0,workHeight(s)-6-(d.field and 2 or 0)-extra)
+  local maxLines=max(0,s.h-6-(d.field and 2 or 0)-extra)
   while #lines>maxLines do table.remove(lines)end
   local h = 3 + #lines + (d.field and 2 or 0) + 1+extra
-  local x, y = floor((s.w - w) / 2) + 1, max(1, floor((workHeight(s) - h) / 2))
+  local x, y = floor((s.w - w) / 2) + 1, max(1, floor((s.h - h) / 2))
   hit(1, 1, s.w, s.h, function() end)
   shade(x + 1, y + h, w, 1)
   shade(x + w, y + 1, 1, h)
@@ -1385,152 +904,6 @@ local function drawDialog(s, d)
     put(bx,by,label,primary and T.bg or T.text,primary and T.accent or T.raised)
     local index=i;hit(bx,by,bx+#label-1,by,function()answer(s,d,index)end)
   end
-end
-
-local function drawToasts(s)
-  local tw = min(40, s.w - 4)
-  local y = 2
-  for _, t in ipairs(K.toasts) do
-    local n = t.n
-    local lines = n.text ~= "" and wrap(n.text, tw - 4) or {}
-    local h = 2 + min(2, #lines)
-    if y + h > workHeight(s) then break end
-    local x = s.w - tw
-    shade(x + 1, y + h, tw, 1)
-    shade(x + tw, y + 1, 1, h)
-    fill(x, y, tw, h, T.surface)
-    fill(x, y, 1, h, n.color or T.accent)
-    put(x + 2, y, trunc(n.title, tw - 6), T.text, T.surface)
-    put(x + tw - 2, y, "\215", T.muted, T.surface)
-    for i = 1, min(2, #lines) do put(x + 2, y + i, lines[i], T.muted, T.surface) end
-    local toast = t
-    hit(x, y, x + tw - 1, y + h - 1, function()
-      for i, other in ipairs(K.toasts) do if other == toast then table.remove(K.toasts, i); break end end
-      if n.action then n.action() end
-    end)
-    y = y + h + 1
-  end
-end
-
-------------------------------------------------------------------------
--- The command palette
-------------------------------------------------------------------------
-
-local COMMANDS, CMD_ORDER = {}, {}
-
-local function suggestions(text)
-  local list = {}
-  local first = text:match("^%s*(%S*)") or ""
-  local lower = text:lower()
-  if text == "" then
-    for _, a in ipairs(visibleApps("")) do list[#list + 1] = { label = a.name, hint = a.desc or "", run = "open " .. a.id } end
-    return list
-  end
-  for _, a in ipairs(visibleApps(lower)) do
-    list[#list + 1] = { label = "Open " .. a.name, hint = a.desc or "", run = "open " .. a.id }
-  end
-  for _, n in ipairs(CMD_ORDER) do
-    if n:find(first:lower(), 1, true) == 1 then
-      local c = COMMANDS[n]
-      list[#list + 1] = { label = c.usage, hint = c.desc, run = (first == n and text) or n, complete = n .. " " }
-    end
-  end
-  if #list == 0 then list[1] = { label = "Run \"" .. text .. "\" in a terminal", hint = "shell command", run = "run " .. text } end
-  return list
-end
-
-function K.togglePalette(s)
-  if K.palette then
-    K.palette = nil
-  else
-    K.palette = { screen = s or K.activeScreen(), text = "", sel = 1, out = {} }
-  end
-  markAll()
-end
-
-local function runPalette(line)
-  local p = K.palette
-  if not p or line:match("^%s*$") then return end
-  p.out = { { "> " .. line, T.muted } }
-  local out = function(text, color)
-    for _, l in ipairs(wrap(tostring(text), 66)) do p.out[#p.out + 1] = { l, color or T.text } end
-    if #p.out > 40 then table.remove(p.out, 2) end
-    markDirty(p.screen)
-  end
-  local words = line:match("^%s*(%S+)")
-  K.spawn(function()
-    local ok, handled = pcall(K.exec, line, out, p.screen)
-    if not ok then out(handled, T.danger) end
-    if ok and handled == false then out("Unknown command. Try \"help\".", T.warn) end
-    if K.palette == p and (words == "open" or words == "run") then K.palette = nil; markAll() end
-  end, { title = "Command" })
-  p.text, p.sel = "", 1
-end
-
-local function drawPalette(s)
-  local p = K.palette
-  local w = min(s.w - 4, 72)
-  local x = floor((s.w - w) / 2) + 1
-  local sug = suggestions(p.text)
-  local shown = min(#sug, #p.out > 0 and 3 or 7)
-  local outN = min(#p.out, max(0, workHeight(s) - 6 - shown))
-  local h = 2 + shown + (outN > 0 and outN + 1 or 0) + 1
-  local y = 2
-  hit(1, 1, s.w, s.h, function() K.palette = nil; markAll() end)
-  shade(x + 1, y + h, w, 1)
-  shade(x + w, y + 1, 1, h)
-  fill(x, y, w, h, T.surface)
-  hit(x, y, x + w - 1, y + h - 1, function() end)
-  fill(x, y, w, 1, T.raised)
-  put(x + 1, y, "\16", T.accent, T.raised)
-  local text = p.text
-  if #text > w - 5 then text = text:sub(-(w - 5)) end
-  put(x + 3, y, text ~= "" and text or "", T.text, T.raised)
-  if p.text == "" then put(x + 3, y, "Type a command or an app name", T.muted, T.raised) end
-  s.cursor = { x = x + 3 + #text, y = y, color = T.accent }
-  p.sel = clamp(p.sel, 1, max(1, #sug))
-  for i = 1, shown do
-    local it = sug[i]
-    local yy = y + 1 + i
-    local sel = i == p.sel
-    local bg = sel and T.select or T.surface
-    fill(x, yy, w, 1, bg)
-    put(x + 2, yy, trunc(it.label, floor(w * 0.45)), T.text, bg)
-    put(x + floor(w * 0.45) + 3, yy, trunc(it.hint, w - floor(w * 0.45) - 5), sel and T.text or T.muted, bg)
-    hit(x, yy, x + w - 1, yy, function() runPalette(it.run) end)
-  end
-  if outN > 0 then
-    local oy = y + 2 + shown + 1
-    for i = 1, outN do
-      local line = p.out[#p.out - outN + i]
-      put(x + 2, oy + i - 1, trunc(line[1], w - 4), line[2], T.surface)
-    end
-  end
-  put(x + 2, y + h - 1, trunc("Enter run   Tab complete   Up/Down choose   Alt+Space close", w - 4), T.muted, T.surface)
-end
-
-local function paletteInput(ev)
-  local p = K.palette
-  local e = ev[1]
-  if e == "char" then p.text = p.text .. ev[2]; p.sel = 1
-  elseif e == "paste" then p.text = p.text .. ev[2]
-  elseif e == "key" then
-    local k = ev[2]
-    local sug = suggestions(p.text)
-    if k == keys.backspace then p.text = p.text:sub(1, -2); p.sel = 1
-    elseif k == keys.enter then
-      local it = sug[p.sel]
-      if p.text ~= "" and not COMMANDS[p.text:match("^%s*(%S+)") or ""] and it then runPalette(it.run)
-      elseif p.text == "" and it then runPalette(it.run)
-      else runPalette(p.text) end
-    elseif k == keys.tab then
-      local it = sug[p.sel]
-      if it then p.text = it.complete or it.run end
-    elseif k == keys.up then p.sel = p.sel - 1
-    elseif k == keys.down then p.sel = p.sel + 1
-    end
-  end
-  markDirty(p.screen)
 end
 
 ------------------------------------------------------------------------
@@ -1703,35 +1076,16 @@ local function compose(s)
     drawPanel(s)
   elseif K.saver then
     drawSaver(s)
-  elseif s.kind=="term" and K.pictureScreen()then
-    inputConsole.draw(s,K.pictureScreen())
-    local d=topDialog(s);if d and not d.field then drawDialog(s,d)end
-  elseif s.kind=="term"and K.device.pocket then
+  elseif s.role == "console" then
+    inputConsole.draw(s, K.pictureScreen())
+    local d = topDialog(s); if d and not d.field then drawDialog(s, d) end
+  elseif s.role == "pocket" then
     pocketUI.draw(s)
-    if s.popup then drawPopup(s)end
-    if K.palette and K.palette.screen==s then drawPalette(s)end
-    local d=topDialog(s);if d then drawDialog(s,d)end
+    local d = topDialog(s); if d then drawDialog(s, d) end
   elseif s.role == "picture" then
     picture.draw(s)
-    local d = topDialog(s); if d then drawDialog(s,d) end
-  else
-    drawWall(s)
-    drawIcons(s)
-    for _, w in ipairs(wins) do
-      if w.screen == s and w.state ~= "min" then drawWindow(s, w) end
-    end
-    drawTaskbar(s)
-    -- Keep active app controls clear; unread notifications remain in the tray.
-    if not K.focus or K.focus.screen~=s or K.focus.state=="min"then drawToasts(s)end
-    if s.menu then drawStartMenu(s) end
-    if s.popup then drawPopup(s) end
-    if K.palette and K.palette.screen == s then drawPalette(s) end
     local d = topDialog(s)
-    if d then drawDialog(s, d) end
-    if K.moveMode and K.moveMode.screen == s then
-      local msg = " Tap where the window's corner should go "
-      put(floor((s.w - #msg) / 2) + 1, 1, msg, T.bg, T.warn)
-    end
+    if d then drawDialog(s, d) else picture.toasts(s) end
   end
   -- Copy changed lines to the screen.
   local tgt, cache = s.target, s.cache
@@ -1745,10 +1099,12 @@ local function compose(s)
     end
   end
   local cur = s.cursor
-  if not cur and not K.booting and not K.saver and s.role == "desktop" and not(s.kind=="term"and(K.pictureScreen()or(K.device.pocket and s.pocketHome)))and not s.menu and not s.popup
-    and not topDialog(s) and not (K.palette and K.palette.screen == s) then
-    local w = K.focus
-    if w and w.screen == s and w.state ~= "min" and w.buf.getCursorBlink and w.buf.getCursorBlink() then
+  if not cur and not K.booting and not K.saver and not topDialog(s) then
+    -- The blinking cursor of the app in front, where it is drawn.
+    local w
+    if s.role == "picture" then w = K.pictureApp(s)
+    elseif s.role == "pocket" and not s.pocketHome then w = K.focus end
+    if w and w.screen == s and w.buf.getCursorBlink and w.buf.getCursorBlink() then
       local cx, cy = w.buf.getCursorPos()
       if cx >= 1 and cx <= w.w and cy >= 1 and cy <= w.h then
         cur = { x = w.x + cx - 1, y = w.y + cy, color = w.buf.getTextColor() }
@@ -1765,43 +1121,14 @@ local function compose(s)
   end
 end
 
--- Full Sync fills the monitor and shares one transform with touch input.
-local function presentMirror(m, src)
-  m.dirty=false
-  local rows=mirror.rows(src.buf,src.w,src.h,m.w,m.h)
-  for y,row in ipairs(rows)do
-    local old=m.cache[y]
-    if not old or old[1]~=row[1]or old[2]~=row[2]or old[3]~=row[3]then
-      m.target.setCursorPos(1,y);m.target.blit(row[1],row[2],row[3]);m.cache[y]=row
-    end
-  end
-  local cur=src.lastCursor
-  if cur and cur.x>=1 and cur.x<=src.w and cur.y>=1 and cur.y<=src.h then
-    local x,y=mirror.target(cur.x,cur.y,src.w,src.h,m.w,m.h)
-    m.target.setCursorPos(x,y);m.target.setTextColor(cur.color);m.target.setCursorBlink(true)
-  else m.target.setCursorBlink(false)end
-end
-
 local function render()
-  local home = screenByName.term
   for _, s in ipairs(screens) do
-    if s.role == "mirror" and s.dirty then home.dirty = true end
-  end
-  for _, s in ipairs(screens) do
-    if s.dirty and s.role ~= "off" and s.role ~= "mirror" then
+    if s.dirty and s.role ~= "off" then
       s.dirty = false
       local ok, err = pcall(compose, s)
       if not ok then
         -- Usually a monitor removed mid-frame; peripheral events rebuild.
         logCrash({ title = "render " .. s.name }, err)
-      end
-      if s == home then
-        for _, m in ipairs(screens) do
-          if m.role == "mirror" then
-            local okM, errM = pcall(presentMirror, m, s)
-            if not okM then logCrash({ title = "mirror " .. m.name }, errM) end
-          end
-        end
       end
     end
   end
@@ -1820,51 +1147,15 @@ local function wakeSaver()
   end
 end
 
-local function dragTo(x, y)
-  local d = K.drag
-  local w = d.win
-  if d.kind == "move" then
-    if w.state ~= "normal" then
-      w.state = "normal"
-      w.w, w.h = w.normalW or w.w, w.normalH or w.h
-      d.dx = min(d.dx, w.w - 1)
-    end
-    w.x, w.y = x - d.dx, max(1, y - d.dy)
-  else
-    w.w, w.h = max(12, x - w.x), max(3, y - w.y - 1)
-    w.normalW, w.normalH = w.w, w.h
-  end
-  layout(w)
-end
-
 local function pointer(s, kind, btn, x, y)
   K.lastScreen = s
   if wakeSaver() or K.booting then return end
-  if kind == "drag" then
-    if K.drag then dragTo(x, y)
-    elseif capture then
+  if kind == "drag" or kind == "up" then
+    if capture then
       local w = capture.win
-      post(w.proc, { "mouse_drag", btn, x - w.x + 1, y - w.y, n = 4 })
+      post(w.proc, { kind == "drag" and "mouse_drag" or "mouse_up", btn, x - w.x + 1, y - w.y, n = 4 })
+      if kind == "up" then capture = nil end
     end
-    return
-  elseif kind == "up" then
-    if K.drag then K.drag = nil; markDirty(s)
-    elseif capture then
-      local w = capture.win
-      post(w.proc, { "mouse_up", btn, x - w.x + 1, y - w.y, n = 4 })
-      capture = nil
-    end
-    return
-  end
-  if K.moveMode and kind ~= "scroll" then
-    local w = K.moveMode.win
-    K.moveMode = nil
-    if w.screen == s and not w.proc.dead then
-      w.state = "normal"
-      w.x, w.y = x, y
-      layout(w)
-    end
-    markDirty(s)
     return
   end
   local h = hitAt(s, x, y)
@@ -1905,24 +1196,6 @@ end
 
 local held = {}
 
-local function shortcut(k)
-  local w = K.keyTarget()
-  if k == keys.space then K.togglePalette(screenByName.term)
-  elseif k == keys.tab then K.cycleFocus()
-  elseif k == keys.enter or k == keys.up then if w then K.toggleMax(w) end
-  elseif k == keys.down then if w then K.minimize(w) end
-  elseif k == keys.left then if w then K.snap(w, "left") end
-  elseif k == keys.right then if w then K.snap(w, "right") end
-  elseif k == keys.q then if w then K.closeWindow(w) end
-  elseif k == keys.m then if w then K.moveToNextScreen(w) end
-  elseif k == keys.a then K.launch("agent", nil, { screen = screenByName.term })
-  elseif k == keys.t then K.launch("terminal", nil, { screen = screenByName.term })
-  elseif k == keys.f then K.launch("files", nil, { screen = screenByName.term })
-  elseif k == keys.s then K.toggleStart(screenByName.term)
-  else return false end
-  return true
-end
-
 local function dialogInput(s, d, ev)
   local e = ev[1]
   if e == "char" or e == "paste" then
@@ -1930,70 +1203,53 @@ local function dialogInput(s, d, ev)
   elseif e == "key" then
     if ev[2] == keys.backspace then d.field.text = d.field.text:sub(1, -2)
     elseif ev[2] == keys.enter then answer(s, d, #d.buttons)
-    elseif ev[2] == keys.escape then answer(s,d,1) end
+    elseif ev[2] == keys.escape then answer(s, d, 1) end
   end
-  markDirty(s)
+  markAll()
 end
 
+-- The computer keyboard. Prompts come first wherever they are shown, then
+-- Big Picture: F2 returns to Start, the app in front gets every key, and
+-- on Start typing searches. A monitor's agent chat is typed on the console.
 local function keyboard(ev)
   local e = ev[1]
   if e == "key" then held[ev[2]] = true elseif e == "key_up" then held[ev[2]] = nil end
   if e ~= "key_up" and wakeSaver() then return end
   if K.booting then return end
   local alt = held[keys.leftAlt] or held[keys.rightAlt]
-  local pictureTarget=K.pictureScreen()
-  if pictureTarget then
-    if e=="key"and((alt and ev[2]==keys.a)or ev[2]==keys.f1)then K.launch("agent",{},{screen=pictureTarget});return end
-    for _,ss in ipairs(screens)do local dialog=topDialog(ss);if dialog and not dialog.field then
-      if e=="key"and ev[2]==keys.enter then answer(ss,dialog,dialog.enterChoice or 1)
-      elseif e=="key"and ev[2]==keys.escape then answer(ss,dialog,1)end
-      return
-    end end
-    inputConsole.keyboard(ev,pictureTarget);return
+  if e == "key" and ((alt and ev[2] == keys.a) or ev[2] == keys.f1) then
+    K.launch("agent", {}, { screen = K.homeScreen() }); return
   end
-  if e == "key" and ev[2] == keys.f1 then K.launch("agent", nil, {screen=screenByName.term}); return end
-  if alt and e == "key" and shortcut(ev[2]) then markAll(); return end
-  if alt and e == "char" then return end
-  if e=="key"and ev[2]==keys.escape then
-    local handled=false
-    if K.palette then K.palette=nil;handled=true end
-    for _,sc in ipairs(screens)do
-      local d=topDialog(sc)
-      if d then answer(sc,d,1);return end
-      if sc.menu or sc.popup then sc.menu,sc.popup=nil,nil;handled=true end
-    end
-    if handled then markAll();return end
-  end
-  if K.device.pocket and e=="key"and ev[2]==keys.f2 then pocketUI.home();return end
-  if K.palette and e ~= "key_up" then paletteInput(ev); return end
   for _, s in ipairs(screens) do
     local d = topDialog(s)
     if d and e ~= "key_up" then
       if d.field then dialogInput(s, d, ev)
-      elseif e=="key"then
-        if ev[2]==keys.left or ev[2]==keys.up then d.choice=((d.choice or d.enterChoice or #d.buttons)-2)%#d.buttons+1;markDirty(s)
-        elseif ev[2]==keys.right or ev[2]==keys.down then d.choice=(d.choice or d.enterChoice or #d.buttons)%#d.buttons+1;markDirty(s)
-        elseif ev[2]==keys.enter then answer(s,d,d.choice or d.enterChoice or #d.buttons)end
+      elseif e == "key" then
+        local n = #d.buttons
+        local cur = d.choice or d.enterChoice or n
+        if ev[2] == keys.left or ev[2] == keys.up or ev[2] == keys.tab and held[keys.leftShift] then d.choice = (cur - 2) % n + 1; markAll()
+        elseif ev[2] == keys.right or ev[2] == keys.down or ev[2] == keys.tab then d.choice = cur % n + 1; markAll()
+        elseif ev[2] == keys.enter or ev[2] == keys.numPadEnter then answer(s, d, cur)
+        elseif ev[2] == keys.escape then answer(s, d, 1) end
       end
       return
     end
   end
-  if K.device.pocket and e=="key"and K.agent.pending then
-    if ev[2]==keys.f3 then K.agent.approve(true);return elseif ev[2]==keys.f4 then K.agent.approve(false);return end
+  local ps = K.pictureScreen()
+  if ps then
+    if e == "key" and ev[2] == keys.f2 then picture.home(ps); return end
+    local v = ps.picture or {}
+    if ps.kind == "monitor" and v.view == "agent" and inputConsole.keyboard(ev, ps) then return end
+    local app = K.pictureApp(ps)
+    if app then post(app.proc, ev); return end
+    if e ~= "key_up" then picture.keyboard(ps, ev) end
+    return
   end
-  if K.device.pocket and pocketUI.keyboard(ev)then return end
-  for _, s in ipairs(screens) do
-    if s.menu and e ~= "key_up" then
-      if e == "char" then s.menu.search = s.menu.search .. ev[2]
-      elseif e == "key" and ev[2] == keys.backspace then s.menu.search = s.menu.search:sub(1, -2)
-      elseif e == "key" and ev[2] == keys.enter then
-        local first = visibleApps(s.menu.search)[1]
-        if first then s.menu = nil; K.launch(first.id, nil, { screen = s }) end
-      end
-      markDirty(s)
-      return
-    end
+  if e == "key" and ev[2] == keys.f2 then pocketUI.home(); return end
+  if e == "key" and K.agent.pending then
+    if ev[2] == keys.f3 then K.agent.approve(true); return elseif ev[2] == keys.f4 then K.agent.approve(false); return end
   end
+  if pocketUI.keyboard(ev) then return end
   local target = K.keyTarget()
   if target then post(target.proc, ev) end
 end
@@ -2054,23 +1310,23 @@ function K.launch(id, args, opts)
   opts = opts or {}
   args = args or {}
   local s = opts.screen or K.activeScreen()
-  if K.device.pocket and s.kind=="term"then
-    if id=="settings"then pocketUI.home("settings");return {id=0,virtual=true}end
-    s.pocketHome=false
-  end
-  if s.role=="picture"and ({files=true,music=true,settings=true,notifications=true,devices=true})[id]then
-    s.picture=s.picture or {page=1,path="/",category="Favorites"};s.picture.view=id;s.picture.page=1
-    if id=="files"and args[1]then s.picture.path=args[1]end
-    markDirty(s);return {id=0,virtual=true}
-  end
-  if s.role == "picture" and not K.canTouchApp(app,s) then
-    K.dialog({screen=s,title="Open desktop tool?",text=app.name.." needs the desktop. Switch to Full Sync?",buttons={"Cancel","Full Sync"},cb=function(i)if i==2 then K.setFullSync(true);K.launch(id,args,{screen=screenByName.term})end end})
-    return nil,"Full Sync required"
-
-  elseif s.role ~= "desktop" and s.role ~= "picture" then s = K.homeScreen() end
-  if s.role == "picture" and app.touch then s.picture=s.picture or {page=1,path="/",category="Favorites"};s.picture.view=id end
-  if id=="agent"then
-    for _,w in ipairs(wins)do if w.app and w.app.id==id and w.screen==s and not w.proc.dead then K.focusWindow(w);if s.role=="picture"then s.picture.appPid=w.id end;return w.proc end end
+  if not hosts(s) then s = K.homeScreen() end
+  if s.role == "pocket" and id == "settings" then pocketUI.home("settings"); return { id = 0, virtual = true } end
+  if s.role == "picture" then
+    s.picture = s.picture or { view = "home", page = 1, path = "/" }
+    local v = s.picture
+    if ({ files = true, music = true, settings = true, notifications = true, devices = true })[id] then
+      v.view, v.page, v.appPid, v.flyout = id, 1, nil, nil
+      if id == "files" and args[1] then v.path = args[1] end
+      markAll(); return { id = 0, virtual = true }
+    end
+    if not K.canTouchApp(app, s) then return nil, app.name .. " needs a bigger screen" end
+    -- Apps are single instance: opening one again brings it back.
+    if #args == 0 and not opts.new then
+      for _, w in ipairs(wins) do
+        if w.app and w.app.id == id and w.screen == s and not w.proc.dead then K.focusWindow(w); return w.proc end
+      end
+    end
   end
   local fn
   if app.shell then
@@ -2089,18 +1345,20 @@ function K.launch(id, args, opts)
   end
   local title = opts.title or (app.needsFile and args[1] and (app.name .. ": " .. fs.getName(args[1]))) or app.name
   local p = K.spawn(fn, { title = title, app = app, window = { screen = s, w = app.w, h = app.h } })
-  if s.role=="picture" then s.picture.appPid=p.id;markDirty(screenByName.term)end
   K.sfx("open")
   return p
 end
 
--- A shell command in a new terminal window that stays open afterwards.
-function K.runCommand(line, s)
+-- A shell command in a terminal that stays open afterwards. Commands the
+-- agent runs open in the background; Terminal on Start brings them up.
+function K.runCommand(line, s, background)
   local app = appById("terminal")
+  s = s or K.activeScreen()
+  if not hosts(s) then s = K.homeScreen() end
   return K.spawn(function()
     local ok = rootShell.run(line)
     waitToClose(ok)
-  end, { title = trunc(line, 30), app = app, window = { screen = s or K.activeScreen(), w = app.w, h = app.h } })
+  end, { title = trunc(line, 30), app = app, window = { screen = s, w = app.w, h = app.h, background = background } })
 end
 
 function K.addRecent(path)
@@ -2126,8 +1384,10 @@ function K.openFile(path, s)
 end
 
 ------------------------------------------------------------------------
--- Commands, for the shell (in /ccos/bin) and the palette
+-- Commands, for the shell (in /ccos/bin) and the agent
 ------------------------------------------------------------------------
+
+local COMMANDS, CMD_ORDER = {}, {}
 
 local function command(name, usage, desc, fn)
   COMMANDS[name] = { name = name, usage = usage, desc = desc, fn = fn }
@@ -2339,16 +1599,21 @@ command("banner", "banner <text>", "Print big letters, one per page", function(a
   if not ok then error(err, 0) end
   out("Printed " .. err .. " page(s)", T.ok)
 end)
-command("theme", "theme [name]", "Show or change the theme", function(a, out)
-  if a[1] then
-    if not THEMES[a[1]] then error("Themes: " .. table.concat(THEME_ORDER, ", "), 0) end
-    API.config("theme", a[1])
+local function colourIds(list)
+  local ids = {}
+  for _, c in ipairs(list) do ids[#ids + 1] = c.id end
+  return table.concat(ids, ", ")
+end
+command("colour", "colour [start|accent] [name]", "Show or change the Start and accent colours", function(a, out)
+  local which = a[1]
+  if which and which ~= "start" and which ~= "accent" then error("Usage: colour [start|accent] [name]", 0) end
+  if which and a[2] then
+    local ok, why = K.validateSetting(which .. "Color", a[2])
+    if not ok then error(why .. ". Choose: " .. colourIds(which == "start" and START_COLORS or ACCENT_COLORS), 0) end
+    API.config(which .. "Color", a[2])
   end
-  out("Theme " .. K.cfg.theme .. " (" .. table.concat(THEME_ORDER, ", ") .. ")")
-end)
-command("wallpaper", "wallpaper [name]", "Show or change the wallpaper", function(a, out)
-  if a[1] then API.config("wallpaper", a[1]) end
-  out("Wallpaper " .. K.cfg.wallpaper .. " (" .. table.concat(gfx.WALLPAPERS, ", ") .. ")")
+  out("Start " .. K.cfg.startColor .. " (" .. colourIds(START_COLORS) .. ")")
+  out("Accent " .. K.cfg.accentColor .. " (" .. colourIds(ACCENT_COLORS) .. ")")
 end)
 command("screens", "screens", "List the displays", function(_, out)
   for _, s in ipairs(screens) do
@@ -2356,15 +1621,14 @@ command("screens", "screens", "List the displays", function(_, out)
     out(padR(s.name, 12) .. padR(s.role, 9) .. (s.w or 0) .. "x" .. (s.h or 0) .. scale)
   end
 end)
-command("screen", "screen <name> <picture|desktop|mirror|panel|off> [scale]", "Set what a monitor shows", function(a, out)
+command("screen", "screen <name> <picture|panel|off> [scale]", "Set what a monitor shows", function(a, out)
   local name, role = a[1], a[2]
-  if not name or not (role == "picture" or role == "desktop" or role == "mirror" or role == "panel" or role == "off") then
-    error("Usage: screen <name> <picture|desktop|mirror|panel|off> [scale]", 0)
+  if not name or not (role == "picture" or role == "panel" or role == "off") then
+    error("Usage: screen <name> <picture|panel|off> [scale]", 0)
   end
-  if name == "term" then error("The computer's own screen is always a desktop", 0) end
+  if name == "term" then error("The computer runs Big Picture or its monitor's keyboard console", 0) end
   local conf = K.cfg.screens[name] or {}
   conf.role = role
-  if name==K.primaryMonitorName then K.cfg.fullSync=role=="mirror"end
   if a[3] then conf.scale = a[3] == "auto" and "auto" or tonumber(a[3]) end
   K.cfg.screens[name] = conf
   K.saveConfig()
@@ -2420,6 +1684,10 @@ local function writeBin()
     local h = fs.open(path, "w")
     if h then h.write(body); h.close() end
   end
+  -- Commands from older versions (the retired desktop) no longer exist.
+  for _, old in ipairs({ "theme", "wallpaper" }) do
+    if not COMMANDS[old] and fs.exists(dir .. "/" .. old .. ".lua") then fs.delete(dir .. "/" .. old .. ".lua") end
+  end
   for _, n in ipairs(CMD_ORDER) do
     stub(n, ("-- ccOS command; see `help %s`.\nif not ccos then printError(\"ccOS isn't running.\") return end\nccos.cli(%q, ...)\n"):format(n, n))
   end
@@ -2431,8 +1699,7 @@ local function writeBin()
     local appNames = {}
     for _, a in ipairs(APPS) do if not a.hidden then appNames[#appNames + 1] = a.id end end
     rootShell.setCompletionFunction("ccos/bin/open.lua", complete.build({ complete.choice, appNames, true }))
-    rootShell.setCompletionFunction("ccos/bin/theme.lua", complete.build({ complete.choice, THEME_ORDER }))
-    rootShell.setCompletionFunction("ccos/bin/wallpaper.lua", complete.build({ complete.choice, gfx.WALLPAPERS }))
+    rootShell.setCompletionFunction("ccos/bin/colour.lua", complete.build({ complete.choice, { "start", "accent" } }))
     rootShell.setCompletionFunction("ccos/bin/play.lua", complete.build(complete.file))
     rootShell.setCompletionFunction("ccos/bin/lp.lua", complete.build(complete.file))
     rootShell.setCompletionFunction("ccos/bin/help.lua", complete.build({ complete.choice, CMD_ORDER }))
@@ -2465,7 +1732,16 @@ function API.isPocket()return K.device.pocket end
 -- Whether the last tap or click came from a monitor.
 function API.touchInput() return K.lastTouch == true end
 function API.pictureScreenName()local s=K.pictureScreen();return s and s.name end
-function API.setFullSync(on)return K.setFullSync(on)end
+-- Read or set the Big Picture view (home, apps, music, files, settings, ...).
+function API.pictureView(view)
+  local s=K.pictureScreen();if not s then return nil end
+  s.picture=s.picture or {view="home",page=1,path="/"}
+  if view~=nil then
+    if type(view)~="string"then error("Expected a view name",2)end
+    s.picture.view,s.picture.page,s.picture.flyout,s.picture.appPid=view,1,nil,nil;markAll()
+  end
+  return s.picture.view
+end
 function API.isTouch()
   local s = callerScreen()
   return s and s.touch or false
@@ -2573,11 +1849,11 @@ function API.prompt(title, text, default)
 end
 
 function K.validateSetting(key, value)
-  local booleans={clock24=true,seconds=true,leadingZero=true,sounds=true,touchSounds=true,shadows=true,swapSpeakers=true,agentConfirm=true,fullSync=true,autoUpdates=true}
+  local booleans={clock24=true,seconds=true,leadingZero=true,sounds=true,touchSounds=true,swapSpeakers=true,agentConfirm=true,autoUpdates=true}
   if booleans[key] then return type(value)=="boolean", "Expected a boolean" end
   if key=="timezone" then return type(value)=="string" and clock.valid(value), "Unsupported time zone" end
-  if key=="theme" then return type(value)=="string" and THEMES[value]~=nil, "Unknown theme" end
-  if key=="wallpaper" then for _,v in ipairs(gfx.WALLPAPERS)do if value==v then return true end end;return false,"Unknown wallpaper" end
+  if key=="startColor" then for _,c in ipairs(START_COLORS)do if c.id==value then return true end end;return false,"Unknown Start colour" end
+  if key=="accentColor" then for _,c in ipairs(ACCENT_COLORS)do if c.id==value then return true end end;return false,"Unknown accent colour" end
   if key=="user" then return type(value)=="string" and #value>0 and #value<=40,"Name must be 1-40 characters" end
   if key=="agentModel" then return type(value)=="string" and #value<=160 and value:match("^[%w%._:/~%-]+$")~=nil,"Invalid model id" end
   local ranges={utcOffset={-720,840},musicVolume={0,1},uiVolume={0,1},balance={-1,1},idle={0,86400},panelRotate={4,3600},agentMaxSteps={1,40},agentMaxTokens={256,8192}}
@@ -2586,14 +1862,11 @@ function K.validateSetting(key, value)
 end
 function API.config(key, value)
   if value == nil then return K.cfg[key] end
-  if key=="fullSync"then return K.setFullSync(value)end
   K.cfg[key] = value
   K.saveConfig()
-  if key == "theme" then
+  if key == "startColor" or key == "accentColor" then
     for _, s in ipairs(screens) do if s.role ~= "off" then applyPalette(s.target); s.cache = {} end end
     os.queueEvent("ccos_theme")
-  elseif key == "wallpaper" then
-    for _, s in ipairs(screens) do s.wallKey = nil end
   elseif key == "swapSpeakers" then
     audio.detect()
   elseif key=="autoUpdates"and value and K.updates then K.updates.check(false)
@@ -2602,8 +1875,7 @@ function API.config(key, value)
   end
   markAll()
 end
-function API.themes() return THEME_ORDER, THEMES end
-function API.wallpapers() return gfx.WALLPAPERS end
+function API.colours() return START_COLORS, ACCENT_COLORS end
 function API.screens()
   local list = {}
   for _, s in ipairs(screens) do
@@ -2614,7 +1886,10 @@ function API.screens()
 end
 function API.setScreen(name, role, scale)
   local conf = K.cfg.screens[name] or {}
-  if role then conf.role = role;if name==K.primaryMonitorName then K.cfg.fullSync=role=="mirror"end end
+  if role then
+    if role ~= "picture" and role ~= "panel" and role ~= "off" then error("Roles: picture, panel, off", 2) end
+    conf.role = role
+  end
   if scale then conf.scale = scale end
   K.cfg.screens[name] = conf
   K.saveConfig()
@@ -2623,7 +1898,6 @@ end
 function API.hw() return K.hw end
 function API.recent() return K.cfg.recent end
 function API.addRecent(path) K.addRecent(path) end
-function API.desktopApps() return K.cfg.desktop end
 function API.exit() K.power = "exit"; K.running = false end
 function API.reboot() K.power = "reboot"; K.running = false end
 function API.shutdown() K.power = "shutdown"; K.running = false end
@@ -2779,7 +2053,7 @@ local function onTick()
   if K.booting and t - K.bootStart > 2200 then
     K.booting = false
     markAll()
-    K.notify(greeting() .. ", " .. K.cfg.user, "ccOS is ready. Alt+Space opens the command palette.", { icon = "about", quiet = true, silent = true })
+    K.notify(greeting() .. ", " .. K.cfg.user, K.device.pocket and "ccOS is ready. F2 returns to Start." or "ccOS is ready. Tap a tile, or press F2 for Start.", { icon = "about", quiet = true, silent = true })
   end
   local changed = false
   for i = #K.toasts, 1, -1 do
@@ -2789,7 +2063,7 @@ local function onTick()
   local minute = clockText(false)
   if minute ~= K.lastMinute or K.cfg.seconds then
     K.lastMinute = minute
-    for _, s in ipairs(screens) do if s.role == "desktop" then markDirty(s) end end
+    for _, s in ipairs(screens) do if s.role == "pocket" or s.role == "console" then markDirty(s) end end
   end
   for _, s in ipairs(screens) do if s.role == "panel" or s.role == "picture" then markDirty(s) end end
   if K.cfg.idle and K.cfg.idle > 0 and not K.saver and not K.booting and t - K.lastInput > K.cfg.idle * 1000 then
@@ -2828,11 +2102,7 @@ local function dispatch(ev)
     pointer(s, kind, ev[2], ev[3], ev[4])
   elseif e == "monitor_touch" then
     local s = screenByName[ev[2]]
-    if s and s.role == "mirror" then
-      local home = screenByName.term
-      local x,y=mirror.source(ev[3],ev[4],home.w,home.h,s.w,s.h)
-      if x then pointer(home,"touch",1,x,y)end
-    elseif s and s.role ~= "off" then
+    if s and s.role ~= "off" then
       pointer(s, "touch", 1, ev[3], ev[4])
     else
       broadcast(ev)

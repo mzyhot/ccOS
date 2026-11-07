@@ -1,5 +1,5 @@
--- ccOS 2.2 setup. Run setup, or use --update to preserve setup preferences.
-local VERSION = "2.2"
+-- ccOS 3.0 setup. Run setup, or use --update to preserve setup preferences.
+local VERSION = "3.0"
 local updateMode = ... == "--update"
 local FILES = {
   {"ccos/apps/about.lua",[=[
@@ -10,9 +10,9 @@ local gfx = ccos.gfx
 local floor = math.floor
 
 local SHORTCUTS = {
-  { "Alt+Space", "Command palette" }, { "Alt+Tab", "Next window" }, { "Alt+Enter", "Maximise" },
-  { "Alt+Left/Right", "Snap to a half" }, { "Alt+Down", "Minimise" }, { "Alt+Q", "Close the window" },
-  { "Alt+M", "Move to the other screen" }, { "Alt+T / Alt+F", "Terminal / Files" }, { "Alt+S", "Start menu" },
+  { "F2", "Back to Start" }, { "F1 / Alt+A", "AI Agent" }, { "Type on Start", "Search apps" },
+  { "Esc / Backspace", "Back out of a page" }, { "Left / Right", "Pan Start and lists" },
+  { "Enter", "Open the top search result" }, { "Ctrl+T", "Stop the app in front" },
 }
 
 local app = { title = "About", list = { scroll = 0 } }
@@ -26,7 +26,7 @@ function app:draw(g)
   end
   gfx.drawCells(term, floor((w - gfx.cellsWidth(logo)) / 2) + 1, 1, logo)
   local y = #logo + 1
-  g:center(y, "ccOS " .. ccos.version .. "  \183  a desktop for CC: Tweaked", T.muted, T.bg)
+  g:center(y, "ccOS " .. ccos.version .. "  \183  Big Picture for CC: Tweaked", T.muted, T.bg)
   local rows = {}
   rows[#rows + 1] = { head = "This computer" }
   for _, r in ipairs(ccos.sysinfo()) do rows[#rows + 1] = r end
@@ -1183,250 +1183,6 @@ end
 
 ui.run(app)
 ]=]},
-  {"ccos/apps/settings.lua",[=[
--- Settings: look, sound, screens, clock and desktop.
-local ui = ccos.ui
-local T = ui.T
-local floor, max, min = math.floor, math.max, math.min
-
-local SECTIONS = { "Appearance", "Sound", "Screens", "Clock & panel", "Desktop", "AI Agent", "System" }
-local IDLE = { 0, 60, 300, 600, 1800 }
-
-local app = { title = "Settings", section = 1, scroll = { scroll = 0 } }
-
-local function cfg(k) return ccos.config(k) end
-local function set(k, v) ccos.config(k, v) end
-
-local function onOff(v) return v and "On" or "Off" end
-
-function app:rows()
-  local rows = {}
-  local function head(text) rows[#rows + 1] = { head = text } end
-  local function row(label, value, actions, note) rows[#rows + 1] = { label = label, value = value, actions = actions, note = note } end
-  local function toggle(label, key, note)
-    row(label, onOff(cfg(key)), { { cfg(key) and "Turn off" or "Turn on", function() set(key, not cfg(key)) end } }, note)
-  end
-  local s = SECTIONS[self.section]
-  if s == "Appearance" then
-    head("Theme")
-    local order, themes = ccos.themes()
-    for _, id in ipairs(order) do
-      local on = cfg("theme") == id
-      row(themes[id].name, on and "In use" or "", on and {} or { { "Use", function() set("theme", id) end } })
-    end
-    head("Wallpaper")
-    for _, wp in ipairs(ccos.wallpapers()) do
-      local on = cfg("wallpaper") == wp
-      row(wp:sub(1, 1):upper() .. wp:sub(2), on and "In use" or "", on and {} or { { "Use", function() set("wallpaper", wp) end } })
-    end
-    head("Windows")
-    toggle("Shadows", "shadows")
-  elseif s == "Sound" then
-    head("Speakers")
-    local info = ccos.audio.info()
-    local spk = ccos.audio.spk
-    row("Found", info.speakers >= 2 and "Two: stereo" or (info.speakers == 1 and "One: mono" or "None"), {})
-    if info.speakers >= 1 then
-      row("Left", tostring(spk.l), { { "Test", function() ccos.audio.note("bell", 12, -1, 1.5) end } })
-      row("Right", tostring(spk.r), { { "Test", function() ccos.audio.note("bell", 12, 1, 1.5) end } })
-    end
-    toggle("Swap left and right", "swapSpeakers", "If the test sounds come from the wrong side")
-    head("Volume")
-    local mv = floor((cfg("musicVolume") or 0) * 100 + 0.5)
-    row("Music", mv .. "%", { { "-", function() ccos.audio.setVolume(cfg("musicVolume") - 0.1) end },
-      { "+", function() ccos.audio.setVolume(cfg("musicVolume") + 0.1) end } })
-    local b = floor((cfg("balance") or 0) * 100 + 0.5)
-    row("Balance", b == 0 and "Centre" or (b < 0 and (-b .. "% left") or (b .. "% right")), {
-      { "L", function() ccos.audio.setBalance(cfg("balance") - 0.1) end },
-      { "Centre", function() ccos.audio.setBalance(0) end },
-      { "R", function() ccos.audio.setBalance(cfg("balance") + 0.1) end } })
-    local uv = floor((cfg("uiVolume") or 0) * 100 + 0.5)
-    row("System sounds", uv .. "%", { { "-", function() set("uiVolume", math.max(0, cfg("uiVolume") - 0.1)); ccos.sfx("notify") end },
-      { "+", function() set("uiVolume", math.min(1, cfg("uiVolume") + 0.1)); ccos.sfx("notify") end } })
-    toggle("Play system sounds", "sounds")
-    toggle("Click on touch", "touchSounds")
-  elseif s == "Screens" then
-    head("Monitor mode")
-    row("Top monitor", cfg("fullSync")and "Full Sync"or "Big Picture",{{"Full Sync",function()ccos.setFullSync(true)end},{"Big Picture",function()ccos.setFullSync(false)end}})
-    head("Displays")
-    for _, sc in ipairs(ccos.screens()) do
-      if sc.kind == "term" then
-        row("Computer", ("%dx%d, desktop"):format(sc.w or 0, sc.h or 0), {})
-      else
-        local roles = { picture = "mirror", mirror = "desktop", desktop = "panel", panel = "off", off = "picture" }
-        row(sc.name, ("%s, %dx%d, scale %s"):format(sc.role, sc.w or 0, sc.h or 0, tostring(sc.scale or "-")), {
-          { "Role", function() ccos.setScreen(sc.name, roles[sc.role]) end },
-          { "Scale -", function()
-            local cur = type(sc.scaleCfg) == "number" and sc.scaleCfg or (sc.scale or 1)
-            ccos.setScreen(sc.name, nil, math.max(0.5, cur - 0.5))
-          end },
-          { "Scale +", function()
-            local cur = type(sc.scaleCfg) == "number" and sc.scaleCfg or (sc.scale or 1)
-            ccos.setScreen(sc.name, nil, math.min(5, cur + 0.5))
-          end },
-          { "Auto", function() ccos.setScreen(sc.name, nil, "auto") end },
-        })
-      end
-    end
-    rows[#rows + 1] = { note = "Big Picture uses the computer for prompt input." }
-    rows[#rows + 1] = { note = "Mirror shows the computer's screen, and taps on it act there." }
-    rows[#rows + 1] = { note = "Desktop is a widescreen desktop of its own. Panel shows the time, music and devices." }
-  elseif s == "Clock & panel" then
-    head("Clock")
-    row("Time zone", cfg("timezone"), {{"Next zone", function()
-      local zones=ccos.time.zones;local i=1;for n,z in ipairs(zones)do if z==cfg("timezone")then i=n end end;set("timezone",zones[i%#zones+1])
-    end}})
-    local offset=cfg("utcOffset")or 0
-    row("Fixed UTC offset", offset.." min", {{"-15m",function()set("timezone","fixed");set("utcOffset",math.max(-720,offset-15))end},{"+15m",function()set("timezone","fixed");set("utcOffset",math.min(840,offset+15))end}})
-    toggle("24-hour clock", "clock24")
-    toggle("Pad hour with zero", "leadingZero", "Off displays 1:00 instead of 01:00")
-    toggle("Show seconds", "seconds")
-    head("Panel")
-    local r = cfg("panelRotate") or 12
-    row("Change page every", r .. "s", { { "-", function() set("panelRotate", math.max(4, r - 2)) end }, { "+", function() set("panelRotate", r + 2) end } })
-    head("Screen saver")
-    local idle = cfg("idle") or 0
-    local label = idle == 0 and "Off" or (idle < 60 and (idle .. "s") or (floor(idle / 60) .. " min"))
-    row("Start after", label, { { "Change", function()
-      local i = 1
-      for k, v in ipairs(IDLE) do if v == idle then i = k end end
-      set("idle", IDLE[i % #IDLE + 1])
-    end } })
-  elseif s == "Desktop" then
-    head("Icons on the desktop")
-    local on = {}
-    for _, id in ipairs(cfg("desktop")) do on[id] = true end
-    for _, a in ipairs(ccos.apps()) do
-      if not a.hidden then
-        row(a.name, on[a.id] and "Shown" or "Hidden", { { on[a.id] and "Hide" or "Show", function()
-          local list = {}
-          for _, id in ipairs(cfg("desktop")) do if id ~= a.id then list[#list + 1] = id end end
-          if not on[a.id] then list[#list + 1] = a.id end
-          set("desktop", list)
-        end } })
-      end
-    end
-  elseif s == "AI Agent" then
-    head("OpenRouter")
-    row("API key", ccos.agent.configured() and "Saved" or "Not configured", {{"Configure", ccos.agent.configure}})
-    row("Model",cfg("agentModel"),{{"Change",function()
-      local model=ccos.prompt("OpenRouter model","Model id with tool support",cfg("agentModel"))
-      if model then local ok,why=ccos.agent.selectModel(model);if not ok then ccos.alert("Model unavailable",why)end end
-    end}})
-    toggle("Review agent changes","agentConfirm")
-    row("Step limit",tostring(cfg("agentMaxSteps")),{{"-",function()set("agentMaxSteps",math.max(1,cfg("agentMaxSteps")-1))end},{"+",function()set("agentMaxSteps",math.min(40,cfg("agentMaxSteps")+1))end}})
-    row("Agent", "", {{"Open",function()ccos.open("agent")end}})
-  else
-    head("Updates")
-    toggle("Automatic update checks","autoUpdates")
-    row("ccOS "..ccos.version,ccos.updates.status,{{"Check now",function()ccos.updates.check(true)end}})
-    if ccos.updates.available then row("New version",ccos.updates.available.version,{{"Update",ccos.updates.prompt}})end
-    head("You")
-    row("Name", cfg("user"), { { "Change", function()
-      local name = ccos.prompt("Your name", "What should ccOS call you?", cfg("user"))
-      if name and name ~= "" then set("user", name) end
-    end } })
-    head("Starting up")
-    local boots = fs.exists("/startup.lua")
-    local mine = false
-    if boots then
-      local h = fs.open("/startup.lua", "r")
-      mine = h and (h.readAll() or ""):find("ccos/kernel.lua", 1, true) ~= nil
-      if h then h.close() end
-    end
-    row("Start ccOS on boot", mine and "On" or (boots and "Another startup.lua" or "Off"), {
-      mine and { "Turn off", function() fs.delete("/startup.lua") end }
-        or { "Turn on", function()
-          if fs.exists("/startup.lua") then fs.move("/startup.lua", "/startup.old.lua") end
-          local h = fs.open("/startup.lua", "w")
-          h.write('shell.run("/ccos/kernel.lua")\n')
-          h.close()
-        end },
-    }, boots and not mine and "Turning it on keeps the old file as startup.old.lua" or nil)
-    head("Power")
-    row("Leave", "", { { "Exit to CraftOS", function() if ccos.confirm("Exit ccOS?", "Open windows will close.", "Exit") then ccos.exit() end end },
-      { "Restart", function() if ccos.confirm("Restart?", "Open windows will close.", "Restart") then ccos.reboot() end end },
-      { "Shut down", function() if ccos.confirm("Shut down?", "Open windows will close.", "Shut down") then ccos.shutdown() end end, T.danger } })
-    if fs.exists("/ccos/crash.log") then
-      row("Crash log", ui.bytes(fs.getSize("/ccos/crash.log")), { { "View", function() ccos.openFile("/ccos/crash.log") end },
-        { "Clear", function() fs.delete("/ccos/crash.log") end } })
-    end
-  end
-  return rows
-end
-
-function app:draw(g)
-  local w, h = g.w, g.h
-  local touch = ui.touch()
-  local navW = w >= 60 and 18 or 0
-  local narrow = navW == 0
-  local rowH = narrow and (touch and 4 or 2) or (touch and 2 or 1)
-  if navW > 0 then
-    g:fill(1, 1, navW, h, T.surface)
-    g:text(2, 1, "* Settings", T.accent, T.surface)
-    for i, name in ipairs(SECTIONS) do
-      local y = 2 + i * (touch and 2 or 1)
-      local on = i == self.section
-      g:fill(1, y, navW, touch and 2 or 1, on and T.raised or T.surface)
-      g:text(2, y, ui.trunc(name, navW - 2), on and T.accent or T.text, on and T.raised or T.surface)
-      g:hit(1, y, navW, y + (touch and 1 or 0), function() self.section = i; self.scroll.scroll = 0 end)
-    end
-  else
-    g:fill(1, 1, w, 1, T.surface)
-    g:button(1, 1, "\17", function() self.section = (self.section - 2) % #SECTIONS + 1 end, { bg = T.surface })
-    g:center(1, SECTIONS[self.section], T.accent, T.surface)
-    g:button(w - 2, 1, "\16", function() self.section = self.section % #SECTIONS + 1 end, { bg = T.surface })
-  end
-  local x = navW + 2
-  local cw = w - x
-  local top = navW > 0 and 1 or 3
-  if navW > 0 then g:text(x, 1, SECTIONS[self.section], T.text, T.bg) end
-  local rows = self:rows()
-  g:list(self.scroll, x, top + 1, cw, h - top - 1, rows, function(r, _, rx, ry, rw)
-    if r.head then
-      g:header(rx, ry + rowH - 1, rw, r.head)
-      return
-    end
-    if r.note and not r.label then
-      g:text(rx, ry, ui.trunc(r.note, rw), T.muted, T.bg)
-      return
-    end
-    local lw = min(22, floor(rw * 0.3))
-    g:text(rx, ry, ui.trunc(r.label, lw - 1), T.text, T.bg)
-    if narrow then
-      g:text(rx + lw, ry, ui.trunc(r.value or "", rw - lw), T.accent, T.bg)
-      local bx = rx
-      for _, a in ipairs(r.actions or {}) do
-        bx = g:button(bx, ry + 1, a[1], a[2], { h = touch and 3 or 1, fg = a[3] }) + 1
-      end
-      return
-    end
-    -- buttons from the right first, then the value in the room left
-    local bx = rx + rw
-    for i = #(r.actions or {}), 1, -1 do
-      local a = r.actions[i]
-      local bw = #a[1] + 2
-      if bx - bw < rx + lw + 8 then break end
-      bx = bx - bw
-      g:button(bx, ry, a[1], a[2], { h = rowH, fg = a[3] })
-      bx = bx - 1
-    end
-    g:text(rx + lw, ry, ui.trunc(r.value or "", bx - rx - lw - 1), T.accent, T.bg)
-    if r.note and rowH > 1 then g:text(rx, ry + 1, ui.trunc(r.note, lw + 20), T.muted, T.bg) end
-  end, nil, rowH)
-end
-
-function app:onKey(k)
-  if k == keys.down then self.section = self.section % #SECTIONS + 1
-  elseif k == keys.up then self.section = (self.section - 2) % #SECTIONS + 1
-  else return false end
-  self.scroll.scroll = 0
-end
-
-function app:onEvent(ev)return ev[1]=="ccos_updates"end
-ui.run(app)
-
-]=]},
   {"ccos/apps/tasks.lua",[=[
 -- Tasks: windows and background tasks with their CPU use, and devices.
 local ui = ccos.ui
@@ -1524,11 +1280,11 @@ function app:draw(g)
     g:text(2, y, ui.pad("Screen", 14) .. ui.pad("Role", 10) .. ui.pad("Size", 10) .. "Scale", T.muted, T.bg)
     for i, s in ipairs(ccos.screens()) do
       g:text(2, y + i, ui.pad(s.name, 14), T.text, T.bg)
-      g:text(16, y + i, ui.pad(s.role, 10), (s.role == "desktop" or s.role == "mirror") and T.accent or T.accent2, T.bg)
+      g:text(16, y + i, ui.pad(s.role, 10), s.role == "picture" and T.accent or T.accent2, T.bg)
       g:text(26, y + i, ui.pad((s.w or 0) .. "x" .. (s.h or 0), 10), T.text, T.bg)
       g:text(36, y + i, s.scale and tostring(s.scale) or "-", T.muted, T.bg)
     end
-    g:text(2, h, "Change roles in Settings, or with the `screen` command.", T.muted, T.bg)
+    g:text(2, h, "Change roles in PC settings > Display, or with `screen`.", T.muted, T.bg)
   end
 end
 
@@ -1736,19 +1492,20 @@ ui.run(app)
 ]=]},
   {"ccos/kernel.lua",[=[
 --[[
-  ccOS                                                        v2.2
+  ccOS                                                        v3.0
 
-  A windowed desktop for CC: Tweaked across every screen it can find:
-  the computer's desktop and advanced monitors as touch-only media hubs,
-  smaller monitors as information panels, two speakers as a stereo pair,
-  plus printers and disk drives.
+  A Windows 8.1-style touch OS for CC: Tweaked. The main advanced monitor
+  runs Big Picture (Start tiles, full-screen apps, PC settings) and the
+  computer becomes its keyboard; with no monitor the computer runs Big
+  Picture itself. Smaller monitors show information panels, two speakers
+  form a stereo pair, and printers and disk drives are built in.
 
-  Every app is an ordinary CC program running in its own window, so the
-  CraftOS shell, edit, paint and friends work unchanged; ccOS's own
+  Every app is an ordinary CC program in its own full-screen window, so
+  the CraftOS shell, edit, paint and friends work unchanged; ccOS's own
   apps add the `ccos` API on top.
 ]]
 
-local VERSION = "2.2"
+local VERSION = "3.0"
 local ROOT = "/ccos"
 local CONFIG_PATH = ROOT .. "/config.cfg"
 local nativeTerm = term.current()
@@ -1825,7 +1582,6 @@ local json = loadModule(ROOT .. "/lib/json.lua")
 local sha256=loadModule(ROOT.."/lib/sha256.lua")
 local encoding=loadModule(ROOT.."/lib/encoding.lua")
 K.encoding=encoding
-local mirror=loadModule(ROOT.."/lib/mirror.lua")
 local installer=loadModule(ROOT.."/lib/install.lua")
 K.clock, K.catalog, K.json = clock, catalog, json
 
@@ -1834,12 +1590,11 @@ K.clock, K.catalog, K.json = clock, catalog, json
 ------------------------------------------------------------------------
 
 local DEFAULTS = {
-  user = "Home", theme = "ccos", wallpaper = "ccos",
+  user = "Home", startColor = "purple", accentColor = "teal",
   clock24 = false, seconds = false, leadingZero = false, timezone = "local", utcOffset = 0,
   sounds = true, touchSounds = true, uiVolume = 0.6, musicVolume = 0.8, balance = 0, swapSpeakers = false,
-  screens = {}, panelRotate = 12, idle = 300, shadows = true,
-  desktop = { "files", "terminal", "music", "piano", "clock", "calc", "print", "tasks", "settings", "agent", "notes", "checklist" },
-  fullSync=false, autoUpdates=true, deviceKind="desktop",
+  screens = {}, panelRotate = 12, idle = 300,
+  autoUpdates=true, deviceKind="desktop",
   monitorFavorites={"files","music","clock","calc","settings","agent","notes","checklist","worldclock","units","redstone","peripherals"},
   recent = {}, screenLayout = 0, setupComplete = false, agentModel = "openrouter/auto", agentConfirm = true, agentMaxSteps = 16, agentMaxTokens = 2048,
 }
@@ -1865,8 +1620,6 @@ local function loadConfig()
       end
     end
   end
-  if cfg.theme == "aurora" then cfg.theme = "ccos" end
-  if cfg.wallpaper == "aurora" then cfg.wallpaper = "ccos" end
   cfg.deviceKind=K.device.kind
   K.cfg = cfg
 end
@@ -1880,8 +1633,10 @@ function K.saveConfig()
 end
 
 ------------------------------------------------------------------------
--- Themes. Every theme fills the same 16 slots, so the semantic colours
--- below never change; only what each slot looks like does.
+-- Colours. Every screen uses one flat Windows 8.1 palette: dark app
+-- surfaces, white type and saturated tile colours. The semantic slots
+-- below never change; the Start background (select) and the accent follow
+-- the chosen Start and accent colours.
 ------------------------------------------------------------------------
 
 local C = colors
@@ -1901,32 +1656,36 @@ local function pal(t)
   }
 end
 
-local THEMES = {
-  ccos = { name = "ccOS", palette = pal({ 0x0E1020, 0x1F2440, 0x2E3560, 0x8C93BF, 0xEEF1FF, 0x3DDBD9,
-    0x4D7CFF, 0x9B6BFF, 0xD66BFF, 0xFF7EB6, 0x6BFFB0, 0x2FB67C, 0xFFD36B, 0xFF9B54, 0xFF5C73, 0x7FC8FF }) },
-  midnight = { name = "Midnight", palette = pal({ 0x0B0F1A, 0x161E2E, 0x22304A, 0x7D8BA6, 0xE8EEF9, 0x5AB0FF,
-    0x3D7BFF, 0x7A6CFF, 0xB86CFF, 0xFF79A8, 0x6EE7A8, 0x2E9E6E, 0xFFD479, 0xFFA15C, 0xFF5F6D, 0x9CCBFF }) },
-  sunset = { name = "Sunset", palette = pal({ 0x1A0F14, 0x2B1A24, 0x3D2533, 0xA88C99, 0xFFF1EC, 0xFF9E64,
-    0xFF6B8B, 0xC86BFA, 0xFF5DA2, 0xFF8FB1, 0xB8E986, 0x6BBF8A, 0xFFD56B, 0xFF8A4C, 0xFF4F5E, 0x8FB8FF }) },
-  forest = { name = "Forest", palette = pal({ 0x0D1510, 0x17241B, 0x223527, 0x86A08F, 0xEEF6EF, 0x6BE3A4,
-    0x4FA3FF, 0x9C7BFF, 0xD27BFF, 0xFF8FA8, 0xA6F06B, 0x3BA55C, 0xF2D86B, 0xF2A65A, 0xF2665A, 0x8CD3FF }) },
-  ocean = { name = "Ocean", palette = pal({ 0x07131C, 0x0F2230, 0x173246, 0x7FA2B8, 0xE9F6FF, 0x2EE6D6,
-    0x2A8CFF, 0x6C7BFF, 0xB07BFF, 0xFF7FB0, 0x5CF2A8, 0x1FA67A, 0xFFE07A, 0xFFB26B, 0xFF6B6B, 0x7FD8FF }) },
-  classic = { name = "Classic", palette = { [C.brown] = 0x333333 } },
+local START_COLORS = {
+  { id = "purple", name = "Purple", rgb = 0x2A1660 }, { id = "indigo", name = "Indigo", rgb = 0x1B2A6B },
+  { id = "blue", name = "Blue", rgb = 0x00316E }, { id = "teal", name = "Teal", rgb = 0x00575E },
+  { id = "green", name = "Green", rgb = 0x1A5627 }, { id = "olive", name = "Olive", rgb = 0x4F5A12 },
+  { id = "orange", name = "Rust", rgb = 0x8A2E0C }, { id = "red", name = "Crimson", rgb = 0x7A0A26 },
+  { id = "magenta", name = "Magenta", rgb = 0x6E0F5E }, { id = "charcoal", name = "Charcoal", rgb = 0x262626 },
 }
-local THEME_ORDER = { "ccos", "midnight", "sunset", "forest", "ocean", "classic" }
-K.THEMES, K.THEME_ORDER = THEMES, THEME_ORDER
+local ACCENT_COLORS = {
+  { id = "teal", name = "Teal", rgb = 0x00ABA9 }, { id = "blue", name = "Blue", rgb = 0x2D89EF },
+  { id = "cobalt", name = "Cobalt", rgb = 0x0050EF }, { id = "violet", name = "Violet", rgb = 0x8E44D8 },
+  { id = "magenta", name = "Magenta", rgb = 0xD80073 }, { id = "red", name = "Red", rgb = 0xE51400 },
+  { id = "orange", name = "Orange", rgb = 0xF09609 }, { id = "lime", name = "Lime", rgb = 0x8CBF26 },
+  { id = "emerald", name = "Emerald", rgb = 0x008A00 },
+}
+K.START_COLORS, K.ACCENT_COLORS = START_COLORS, ACCENT_COLORS
+local function pick(list, id)
+  for _, c in ipairs(list) do if c.id == id then return c.rgb end end
+  return list[1].rgb
+end
+local function metroPalette()
+  return pal({ 0x1D1D1D, 0x2B2B2B, 0x464646, 0xA6A6A6, 0xFFFFFF, pick(ACCENT_COLORS, K.cfg.accentColor),
+    pick(START_COLORS, K.cfg.startColor), 0x603CBA, 0x9F00A7, 0xD80073, 0x00A300, 0x1E7145, 0xE3A21A, 0xDA532C, 0xE51400, 0x2D89EF })
+end
+K.metroPalette = metroPalette
 
 local function applyPalette(t)
-  local th = THEMES[K.cfg.theme] or THEMES.ccos
+  local p = metroPalette()
   for i = 0, 15 do
     local c = floor(2 ^ i)
-    local v = th.palette[c]
-    if v then
-      t.setPaletteColour(c, v)
-    else
-      t.setPaletteColour(c, term.nativePaletteColour(c))
-    end
+    t.setPaletteColour(c, p[c] or term.nativePaletteColour(c))
   end
 end
 
@@ -1963,7 +1722,8 @@ APPS[#APPS + 1] = { id="devices", name="Devices", desc="Drives, printer and spea
 APPS[#APPS + 1] = { id="agent", name="AI Agent", desc="OpenRouter assistant with OS tools", path="agent", category="AI", touch=true, w=76, h=24 }
 for _, app in ipairs(APPS) do
   app.category = app.category or catalog.base[app.id] or "System"
-  app.touch = app.touch or ({clock=true,piano=true,calc=true})[app.id] or false
+  -- Every app runs full screen in Big Picture.
+  app.touch = true
 end
 for _, app in ipairs(catalog.apps()) do APPS[#APPS+1] = app end
 local categoryIcons={Files="files",Time="clock",Media="music",Math="calc",Text="viewer",Developer="terminal",System="tasks",Games="worm",AI="agent"}
@@ -2133,9 +1893,7 @@ end
 local function autoScale(m, role)
   local bw, bh = monitorBlocks(m)
   local needW, needH = 60, 30
-  if role == "panel" then needW, needH = 40, 8
-  elseif role == "picture" then needW, needH = 60, 19
-  elseif role == "mirror" then needW, needH = nativeTerm.getSize() end
+  if role == "panel" then needW, needH = 40, 8 end
   for s = 5, 0.5, -0.5 do
     local w, h = charsAt(bw, bh, s)
     if w >= needW and h >= needH then return s end
@@ -2155,41 +1913,64 @@ local function setupScreen(s)
   s.w, s.h = s.target.getSize()
   s.buf = window.create(s.target, 1, 1, s.w, s.h, false)
   s.cache = {}
-  s.taskH = (s.kind == "monitor" and s.h >= 24) and 3 or 1
   s.touch = s.kind == "monitor"
-  s.menu, s.popup = nil, nil
   applyPalette(s.target)
   s.target.setCursorBlink(false)
   s.dirty = true
 end
 
+-- Big Picture is the only shell. The main advanced monitor runs it and the
+-- computer becomes its keyboard console; with no such monitor the computer
+-- runs Big Picture itself. Pocket computers keep their compact launcher.
+function K.pictureScreen()
+  if K.device.pocket then return nil end
+  local s = K.primaryMonitorName and screenByName[K.primaryMonitorName]
+  if s and s.role == "picture" then return s end
+  for _, c in ipairs(screens) do if c.kind == "monitor" and c.role == "picture" then return c end end
+  local t = screenByName.term
+  if t and t.role == "picture" then return t end
+end
+
 function K.homeScreen()
-  if K.device.pocket then return screenByName.term end
-  for _, s in ipairs(screens) do
-    if s.kind == "monitor" and s.role == "desktop" then return s end
-  end
-  return screenByName.term
+  return K.pictureScreen() or screenByName.term
 end
 
 function K.activeScreen()
-  if K.focus and K.focus.screen.role == "desktop" then return K.focus.screen end
-  if K.lastScreen and K.lastScreen.role == "desktop" and screenByName[K.lastScreen.name] then return K.lastScreen end
+  local last = K.lastScreen
+  if last and last.role == "picture" and screenByName[last.name] == last then return last end
   return K.homeScreen()
 end
 
+-- The app a Big Picture screen shows full screen, if any.
+function K.pictureApp(s)
+  local v = s and s.picture
+  if not v or not v.appPid then return end
+  for _, w in ipairs(wins) do
+    if w.id == v.appPid and w.screen == s and not w.proc.dead then return w end
+  end
+end
+
+local function hosts(s) return s.role == "picture" or s.role == "pocket" end
+
 function K.buildScreens()
   local list, byName = {}, {}
-  local function make(name, target, kind, defaultRole)
+  -- The retired desktop and Full Sync roles become Big Picture.
+  local migrated = false
+  for _, conf in pairs(K.cfg.screens) do
+    if type(conf) == "table" and (conf.role == "desktop" or conf.role == "mirror") then
+      conf.role, conf.scale, migrated = "picture", "auto", true
+    end
+  end
+  if K.cfg.screenLayout < 3 then K.cfg.screenLayout, migrated = 3, true end
+  if migrated then K.saveConfig() end
+  local function make(name, target, kind, defaultRole, color)
     local s = screenByName[name] or { name = name, hits = {}, cache = {} }
     local conf = K.cfg.screens[name] or {}
     s.target, s.kind = target, kind
     local was = s.role
     s.role = conf.role or defaultRole
-    if was=="picture"and s.role~="picture"and byName.term then
-      local dest=byName.term;dest.dialogs=dest.dialogs or {}
-      for _,d in ipairs(s.dialogs or {})do d.screen=dest;dest.dialogs[#dest.dialogs+1]=d end
-      s.dialogs={}
-    end
+    -- Basic monitors cannot be touched, so they show the info panel.
+    if kind == "monitor" and s.role == "picture" and not color then s.role = "panel" end
     s.scaleCfg = conf.scale or "auto"
     if was and was ~= "off" and s.role == "off" then
       pcall(function()
@@ -2202,7 +1983,7 @@ function K.buildScreens()
     byName[name] = s
     return s
   end
-  make("term", nativeTerm, "term", "desktop").role = "desktop"
+  local home = make("term", nativeTerm, "term", "picture", true)
   local mons = {}
   for _, n in ipairs(peripheral.getNames()) do
     if peripheral.getType(n) == "monitor" then
@@ -2215,77 +1996,61 @@ function K.buildScreens()
     if a.color ~= b.color then return a.color end
     return a.area > b.area
   end)
-  -- Upgrade the main display once; later role choices remain explicit.
-  if K.cfg.screenLayout < 2 and mons[1] and mons[1].color then
-    local conf = K.cfg.screens[mons[1].name] or {}
-    if not conf.role or conf.role == "mirror" or conf.role == "desktop" then conf.role = "picture"; conf.scale = "auto" end
-    K.cfg.screens[mons[1].name] = conf
-    K.cfg.screenLayout = 2
-    K.saveConfig()
-  end
-  K.primaryMonitorName=mons[1]and mons[1].color and mons[1].name or nil
-  for _,m in ipairs(mons)do if m.color and m.name==K.cfg.mainMonitor then K.primaryMonitorName=m.name;break end end
-  -- The biggest advanced monitor is a touch-only hub; the rest are panels.
+  K.primaryMonitorName = mons[1] and mons[1].color and mons[1].name or nil
+  -- The biggest advanced monitor runs Big Picture; the rest are panels.
   local first = true
   for _, x in ipairs(mons) do
-    if x.name==K.primaryMonitorName and K.cfg.fullSync then
-      K.cfg.screens[x.name]=K.cfg.screens[x.name]or {};K.cfg.screens[x.name].role="mirror";K.cfg.screens[x.name].scale="auto"
-    end
-    make(x.name, x.m, "monitor", (x.color and first) and "picture" or "panel")
+    make(x.name, x.m, "monitor", (x.color and first) and "picture" or "panel", x.color)
     if x.color then first = false end
   end
+  local monitorPicture = false
+  for _, s in ipairs(list) do if s.kind == "monitor" and s.role == "picture" then monitorPicture = true end end
+  home.role = K.device.pocket and "pocket" or (monitorPicture and "console" or "picture")
+  local old = screens
   screens, screenByName = list, byName
   K.screens = list
   for _, s in ipairs(list) do
     if s.role ~= "off" then setupScreen(s) end
   end
-  local home = K.homeScreen()
+  local dest = K.homeScreen()
+  -- Prompts and apps on a screen that left Big Picture follow to the new one.
+  for _, s in ipairs(old) do
+    if s ~= dest and (byName[s.name] ~= s or not hosts(s)) and s.dialogs and #s.dialogs > 0 and s.role ~= "console" then
+      dest.dialogs = dest.dialogs or {}
+      for _, d in ipairs(s.dialogs) do d.screen = dest; dest.dialogs[#dest.dialogs + 1] = d end
+      s.dialogs = {}
+    end
+  end
+  for _, s in ipairs(old) do
+    -- Big Picture carries on where it was: the same page or app in front.
+    if s ~= dest and s.picture and (byName[s.name] ~= s or not hosts(s)) and dest.role == "picture" then
+      local was, now = s.picture, dest.picture
+      if not now or now.view == "home" then
+        dest.picture = { view = was.view or "home", page = 1, path = was.path or "/", appPid = was.appPid, settingsPage = was.settingsPage }
+      end
+      s.picture = nil
+    end
+  end
   for _, w in ipairs(wins) do
-    if not byName[w.screen.name] or (w.screen.role ~= "desktop" and w.screen.role ~= "picture") then w.screen = home end
+    if byName[w.screen.name] ~= w.screen or not hosts(w.screen) then w.screen = dest end
     layout(w)
   end
   if markAll then markAll() end
-end
-
-function K.pictureScreen()
-  if K.device.pocket then return nil end
-  local s=K.primaryMonitorName and screenByName[K.primaryMonitorName]
-  if s and s.role=="picture"then return s end
-  for _,candidate in ipairs(screens)do if candidate.kind=="monitor"and candidate.role=="picture"then return candidate end end
-end
-function K.setFullSync(enabled)
-  local current=K.pictureScreen()
-  local name=current and current.name or K.primaryMonitorName
-  if not name then return false,"No advanced monitor is connected"end
-  K.cfg.fullSync=enabled==true;K.cfg.mainMonitor=name
-  local conf=K.cfg.screens[name]or {};conf.role=enabled and "mirror"or "picture";conf.scale="auto";K.cfg.screens[name]=conf
-  K.saveConfig();K.buildScreens();return true
 end
 
 ------------------------------------------------------------------------
 -- Windows
 ------------------------------------------------------------------------
 
-local function workHeight(s) return s.h - s.taskH end
-
+-- Apps always fill their screen: below the title bar in Big Picture and
+-- between the pocket launcher's top and bottom bars.
 function layout(w)
   local s = w.screen
-  local ah = workHeight(s)
-  if s.kind=="term"and K.device.pocket then
-    w.state="max";w.x,w.y,w.w,w.h=1,1,s.w,max(3,s.h-2)
-  elseif s.role == "picture" then
-    w.x, w.y, w.w, w.h = 1, 1, max(12, s.w), max(3, s.h - 2)
-  elseif w.state == "max" then
-    w.x, w.y, w.w, w.h = 1, 1, s.w, ah - 1
-  elseif w.state == "left" or w.state == "right" then
-    local half = floor(s.w / 2)
-    w.y, w.h = 1, ah - 1
-    if w.state == "left" then w.x, w.w = 1, half else w.x, w.w = half + 1, s.w - half end
+  w.state = "max"
+  if s.role == "pocket" then
+    w.x, w.y, w.w, w.h = 1, 1, s.w, max(3, s.h - 2)
   else
-    w.w = clamp(w.w, 12, s.w)
-    w.h = clamp(w.h, 3, ah - 1)
-    w.x = clamp(w.x, 1, s.w - w.w + 1)
-    w.y = clamp(w.y, 1, ah - w.h)
+    w.x, w.y, w.w, w.h = 1, 1, max(12, s.w), max(3, s.h - 1)
   end
   local bw, bh = w.buf.getSize()
   if bw ~= w.w or bh ~= w.h then
@@ -2297,26 +2062,14 @@ function layout(w)
 end
 K.layout = layout
 
-local function windowsOn(s)
-  local list = {}
-  for _, w in ipairs(wins) do if w.screen == s then list[#list + 1] = w end end
-  return list
-end
-
 function newWindow(p, o)
   local s = o.screen or K.activeScreen()
-  local ah = workHeight(s)
-  local w = { id = p.id, proc = p, screen = s, title = o.title or p.title, app = p.app, state = "normal", opened = now() }
-  local grow = (s.touch and s.w >= 120) and 1.3 or 1
-  w.w, w.h = min(floor((o.w or 60) * grow), s.w), min(floor((o.h or 20) * grow), ah - 1)
-  if s.w < 60 or w.w >= s.w - 2 or w.h >= ah - 2 then w.state = "max" end
-  local n = #windowsOn(s)
-  w.x = floor((s.w - w.w) / 2) + 1 + (n % 5) * 3 - 6
-  w.y = floor((ah - w.h) / 2) + (n % 5) - 1
+  local w = { id = p.id, proc = p, screen = s, title = o.title or p.title, app = p.app, state = "max", opened = now() }
+  w.w, w.h = s.w, s.h
   w.buf = makeBuffer(w.w, w.h)
-  wins[#wins + 1] = w
+  if o.background then table.insert(wins, 1, w) else wins[#wins + 1] = w end
   layout(w)
-  K.focusWindow(w)
+  if not o.background then K.focusWindow(w) end
   return w
 end
 
@@ -2326,9 +2079,17 @@ function K.focusWindow(w)
     if x == w then table.remove(wins, i); break end
   end
   wins[#wins + 1] = w
-  if w.state == "min" then w.state = w.restore or "normal"; layout(w) end
+  w.state = "max"
   K.focus = w
-  markDirty(w.screen)
+  local s = w.screen
+  if s.role == "picture" and w.app then
+    s.picture = s.picture or { view = "home", page = 1, path = "/" }
+    s.picture.view, s.picture.appPid, s.picture.flyout = w.app.id, w.id, nil
+  elseif s.role == "pocket" then
+    s.pocketHome = false
+  end
+  -- The keyboard console shows what is in front, so it redraws too.
+  markAll()
 end
 
 function removeWindow(w)
@@ -2336,14 +2097,18 @@ function removeWindow(w)
     if x == w then table.remove(wins, i); break end
   end
   if capture and capture.win == w then capture = nil end
-  if K.drag and K.drag.win == w then K.drag = nil end
+  local s = w.screen
+  if s.picture and s.picture.appPid == w.id then
+    s.picture.appPid = nil
+    if s.picture.view == (w.app and w.app.id) then s.picture.view = "home" end
+  end
   if K.focus == w then
     K.focus = nil
     for i = #wins, 1, -1 do
-      if wins[i].screen == w.screen and wins[i].state ~= "min" then K.focus = wins[i]; break end
+      if wins[i].screen == s then K.focus = wins[i]; break end
     end
   end
-  markDirty(w.screen)
+  markAll()
 end
 
 function K.closeWindow(w)
@@ -2352,71 +2117,25 @@ function K.closeWindow(w)
   K.sfx("close")
 end
 
+-- Minimise leaves the app running and returns its screen to Start.
 function K.minimize(w)
-  if w.state ~= "min" then w.restore = w.state end
-  w.state = "min"
-  if K.focus == w then
-    K.focus = nil
-    for i = #wins, 1, -1 do
-      if wins[i] ~= w and wins[i].screen == w.screen and wins[i].state ~= "min" then K.focus = wins[i]; break end
-    end
+  local s = w.screen
+  if s.picture and s.picture.appPid == w.id then
+    s.picture.view, s.picture.appPid = "home", nil
+  elseif s.role == "pocket" then
+    s.pocketHome = true
   end
-  markDirty(w.screen)
+  markAll()
 end
 
-function K.toggleMax(w)
-  if w.state == "max" then w.state = "normal" else w.state = "max" end
-  layout(w)
-  K.focusWindow(w)
-end
-
-function K.snap(w, side)
-  w.state = (w.state == side) and "normal" or side
-  layout(w)
-  K.focusWindow(w)
-end
-
-local function desktops()
-  local list = {}
-  for _, s in ipairs(screens) do if s.role == "desktop" then list[#list + 1] = s end end
-  return list
-end
-
-function K.moveToScreen(w, s)
-  local old = w.screen
-  w.screen = s
-  if w.state == "normal" then
-    w.x, w.y = floor((s.w - w.w) / 2) + 1, 2
-  end
-  layout(w)
-  K.focusWindow(w)
-  markDirty(old)
-end
-
-function K.moveToNextScreen(w)
-  local ds = desktops()
-  for i, s in ipairs(ds) do
-    if s == w.screen then return K.moveToScreen(w, ds[i % #ds + 1]) end
-  end
-end
-
--- Keys go to the top window on the computer's screen, which is the one
--- the player can see while typing; failing that, the focused window.
+-- Keys go to the app in front: the one Big Picture shows full screen, or
+-- the open pocket app.
 function K.keyTarget()
-  if K.device.pocket and screenByName.term.pocketHome then return end
-  if K.focus and K.focus.screen.kind == "term" and K.focus.state ~= "min" then return K.focus end
-  for i = #wins, 1, -1 do
-    local w = wins[i]
-    if w.screen.kind == "term" and w.state ~= "min" then return w end
-  end
-  if K.focus and K.focus.screen.role ~= "picture" and K.focus.state ~= "min" then return K.focus end
-end
-
-function K.cycleFocus()
+  local ps = K.pictureScreen()
+  if ps then return K.pictureApp(ps) end
   local s = screenByName.term
-  local list = windowsOn(s)
-  if #list == 0 then return end
-  K.focusWindow(list[1])
+  if s.pocketHome then return end
+  if K.focus and K.focus.screen == s and not K.focus.proc.dead then return K.focus end
 end
 
 ------------------------------------------------------------------------
@@ -2453,12 +2172,9 @@ local nextDialog = 1
 -- cb(index, text). Also queues ccos_dialog id index text.
 function K.dialog(o)
   local s = o.screen or K.activeScreen()
-  -- Big Picture keeps the prompt on the monitor and bridges its field to
-  -- the computer input console. Other monitor roles use a desktop prompt.
-  if o.input and s.kind ~= "term" and s.role~="picture" then
-    K.notify("Type on the computer", o.title or "", { icon = "terminal", quiet = true, time = 6000 })
-    s = screenByName.term
-  end
+  -- Prompts show where they were asked; a monitor's text field is typed on
+  -- the computer's keyboard console.
+  if s.role ~= "picture" and s.role ~= "pocket" and s.role ~= "console" then s = K.homeScreen() end
   local d = { id = nextDialog, title = o.title or "ccOS", text = o.text or "", buttons = o.buttons or { "OK" },
     cb = o.cb, screen = s, owner = not o.detached and running or nil, enterChoice=o.enterChoice }
   nextDialog = nextDialog + 1
@@ -2604,498 +2320,57 @@ local function gameClock()
 end
 K.gameClock = gameClock
 
--- The splash while booting.
+-- The splash while booting: the Start colour, a light "ccOS" and the
+-- 8.1 progress ring, then a welcome for the user.
 local function drawSplash(s)
-  -- the same key drawWall uses, so an ccos desktop reuses this one
-  local key = "ccos" .. s.w .. "x" .. s.h
-  if s.wallKey ~= key then
-    s.wall, s.wallKey = gfx.wallpaper("ccos", s.w, s.h), key
-  end
-  for y = 1, s.h do
-    local r = s.wall[y]
-    B.setCursorPos(1, y)
-    B.blit(r[1], r[2], r[3])
-  end
-  local scale = 1
-  for k = 6, 1, -1 do
-    local logo = gfx.logo(k)
-    if gfx.cellsWidth(logo) <= s.w * 0.6 and #logo <= s.h * 0.4 then scale = k; break end
-  end
-  local logo = gfx.logo(scale)
-  local lw = gfx.cellsWidth(logo)
-  local ly = max(1, floor((s.h - #logo) / 2) - 1)
-  gfx.drawCells(B, floor((s.w - lw) / 2) + 1, ly, logo)
+  fill(1, 1, s.w, s.h, T.select)
   local frac = clamp((now() - K.bootStart) / 2200, 0, 1)
-  local bw = min(s.w - 4, max(16, lw))
-  local bx, by = floor((s.w - bw) / 2) + 1, ly + #logo + 1
-  if by <= s.h then
-    fill(bx, by, bw, 1, T.surface)
-    fill(bx, by, floor(bw * frac + 0.5), 1, T.accent)
+  local M = gfx.metro
+  local big = s.w >= 60 and s.h >= 24
+  local title = M.markCells(M.textRows("ccOS", big and 2 or 1), HEX[T.text], HEX[T.select], 0, 0)
+  local ring, rw = powerAnimation.ring(s.w, s.h, floor((now() - K.bootStart) / 60), HEX[T.select], HEX[T.text], big and 8 or 5)
+  local msg = frac < 0.7 and "Starting ccOS" or ("Welcome, " .. K.cfg.user)
+  local tw = gfx.cellsWidth(title)
+  local h = #title + 2 + #ring + 2
+  local y = max(1, floor((s.h - h) / 2) + 1)
+  if tw <= s.w and h <= s.h then
+    gfx.drawCells(B, floor((s.w - tw) / 2) + 1, y, title)
+    gfx.drawCells(B, floor((s.w - rw) / 2) + 1, y + #title + 2, ring)
+    put(max(1, floor((s.w - #msg) / 2) + 1), min(s.h, y + h - 1), trunc(msg, s.w), T.text, T.select)
+  else
+    put(max(1, floor((s.w - 4) / 2) + 1), max(1, floor(s.h / 2)), "ccOS", T.text, T.select)
   end
-  if by + 2 <= s.h then
-    local msg = frac < 0.4 and "Waking the screens" or (frac < 0.8 and "Tuning the speakers" or "Welcome")
-    put(floor((s.w - #msg) / 2) + 1, by + 2, msg, T.muted, T.bg)
-  end
-end
-
-local function drawWall(s)
-  local key = K.cfg.wallpaper .. s.w .. "x" .. s.h
-  if s.wallKey ~= key then
-    s.wall, s.wallKey = gfx.wallpaper(K.cfg.wallpaper, s.w, s.h), key
-  end
-  for y = 1, s.h do
-    local r = s.wall[y]
-    B.setCursorPos(1, y)
-    B.blit(r[1], r[2], r[3])
-  end
-end
-
--- Text straight onto the wallpaper, keeping its colours behind.
-local function wallText(s, x, y, text, fg)
-  if y < 1 or y > s.h then return end
-  local row = s.wall[y]
-  local bgs = row[3]:sub(x, x + #text - 1)
-  if #bgs < #text then bgs = bgs .. ("f"):rep(#text - #bgs) end
-  B.setCursorPos(x, y)
-  B.blit(text, (HEX[fg or T.text]):rep(#text), bgs)
-end
-
-local function drawIcons(s)
-  local big = s.w >= 100 and s.h >= 30
-  local scale, iw, ih = big and 2 or 1, big and 8 or 4, big and 4 or 2
-  local slotW, slotH = big and 14 or 12, ih + 3
-  local rows = max(1, floor((workHeight(s) - 1) / slotH))
-  for i, id in ipairs(K.cfg.desktop) do
-    local app = appById(id)
-    if app then
-      local col, row = floor((i - 1) / rows), (i - 1) % rows
-      local x, y = 2 + col * slotW, 2 + row * slotH
-      if x + slotW - 1 <= s.w and y + ih <= workHeight(s) then
-        gfx.icon(B, x + floor((slotW - iw) / 2), y, app.id, scale)
-        local label = trunc(app.name, slotW)
-        local labelW=min(slotW,#label+2)
-        local labelX=x+floor((slotW-labelW)/2)
-        fill(labelX,y+ih,labelW,1,T.bg)
-        put(labelX+floor((labelW-#label)/2),y+ih,label,T.text,T.bg)
-        hit(x, y, x + slotW - 1, y + ih + 1, function() K.launch(app.id, nil, { screen = s }) end)
-      end
-    end
-  end
-end
-
-local lastTitleClick = { t = 0 }
-
-local function drawWindow(s, w)
-  local focused = K.focus == w
-  local x, y, ww, wh = w.x, w.y, w.w, w.h
-  if K.cfg.shadows and w.state == "normal" then
-    shade(x + 1, y + wh + 1, ww, 1)
-    shade(x + ww, y + 1, 1, wh + 1)
-  end
-  local tb = focused and T.raised or T.surface
-  local tf = focused and T.text or T.muted
-  fill(x, y, ww, 1, tb)
-  local g = gfx.GLYPHS[w.app and w.app.id or ""] or { "\7", T.accent }
-  put(x + 1, y, g[1], focused and g[2] or T.muted, tb)
-  local bw = s.touch and 5 or 3
-  local bx = x + ww - 4 * bw
-  put(x + 3, y, trunc(w.title, max(0, bx - x - 4)), tf, tb)
-  hit(x, y, bx - 1, y, function(hx, hy, btn, kind)
-    K.focusWindow(w)
-    if kind == "click" then
-      local t = now()
-      if lastTitleClick.win == w and t - lastTitleClick.t < 400 then
-        K.toggleMax(w)
-        lastTitleClick.t = 0
-        return
-      end
-      lastTitleClick.win, lastTitleClick.t = w, t
-      K.drag = { kind = "move", win = w, dx = hx - w.x, dy = hy - w.y }
-    end
-  end)
-  local labels = { "\4", "-", w.state == "normal" and "\30" or "\31", "\215" }
-  local actions = {
-    function() K.windowMenu(w, s) end,
-    function() K.minimize(w) end,
-    function() K.toggleMax(w) end,
-    function() K.closeWindow(w) end,
-  }
-  for i = 1, 4 do
-    local cx = bx + (i - 1) * bw
-    local fg = (i == 4 and focused) and T.danger or tf
-    put(cx, y, centre(labels[i], bw), fg, tb)
-    hit(cx, y, cx + bw - 1, y, actions[i])
-  end
-  for row = 1, wh do
-    local t, f, b = w.buf.getLine(row)
-    if t then
-      B.setCursorPos(x, y + row)
-      B.blit(t, f, b)
-    end
-  end
-  hit(x, y + 1, x + ww - 1, y + wh, nil, { content = w })
-  if not s.touch and w.state == "normal" then
-    put(x + ww, y + wh + 1, "\127", T.muted, T.bg)
-    hit(x + ww, y + wh + 1, x + ww, y + wh + 1, function(_, _, _, kind)
-      if kind == "click" then K.drag = { kind = "resize", win = w } end
-    end)
-  end
-end
-
-local function trayItems(s)
-  local items = {}
-  local info = audio.info()
-  if K.agent and (K.agent.busy or K.agent.configured())then
-    items[#items+1]={label=K.agent.pending and "AI!"or(K.agent.busy and "AI.."or "AI"),color=T.accent,fn=function()K.launch("agent",{}, {screen=screenByName.term})end}
-  end
-  if info.state ~= "stopped" or info.disc then
-    local name = info.disc and info.discTitle or info.title or "Music"
-    local glyph = info.state == "playing" and "\16" or "\14"
-    items[#items + 1] = { label = glyph .. " " .. trunc(name, s.w >= 100 and 22 or 9), color = T.accent2,
-      fn = function(x) K.musicPopup(s, x) end }
-  end
-  for _, d in ipairs(K.hw.drives or {}) do
-    if d.present then
-      items[#items + 1] = { label = "\8 " .. trunc(d.label or (d.audio and "Record") or "Disk", s.w >= 100 and 12 or 6),
-        color = T.text, fn = function(x) K.drivePopup(s, x, d) end }
-    end
-  end
-  local pr = (K.hw.printers or {})[1]
-  if pr and s.w >= 60 then
-    local low = (pr.paper or 0) < 4 or (pr.ink or 0) < 4
-    items[#items + 1] = { label = "\20", color = low and T.warn or T.muted, fn = function() K.launch("print", nil, { screen = s }) end }
-  end
-  local vol = floor((K.cfg.musicVolume or 0) * 100 + 0.5)
-  items[#items + 1] = { label = "\17" .. vol .. "%", color = T.muted, fn = function(x) K.volumePopup(s, x) end }
-  items[#items + 1] = { label = "\7" .. (K.unread > 0 and (" " .. K.unread) or ""), color = K.unread > 0 and T.accent or T.muted,
-    fn = function(x) K.notificationPopup(s, x) end }
-  return items
-end
-
-local function drawTaskbar(s)
-  local th = s.taskH
-  local y0 = s.h - th + 1
-  local my = y0 + floor((th - 1) / 2)
-  fill(1, y0, s.w, th, T.surface)
-  -- Start button
-  local wide = s.w >= 70
-  local startW = wide and 7 or 5
-  fill(1, y0, startW, th, s.menu and T.accent2 or T.accent)
-  local markH=th>=3 and 5 or 3
-  local pixels=gfx.canvas(startW*2,th*3,HEX[s.menu and T.accent2 or T.accent])
-  local px,py=startW-2,floor((th*3-markH)/2)+1
-  for yy=1,markH do for xx=1,6 do
-    if xx==3 or xx==4 or yy==ceil(markH/2)then pixels.set(px+xx-1,py+yy-1,HEX[T.bg])end
-  end end
-  gfx.drawCells(B,1,y0,gfx.cells(pixels.rows(),HEX[s.menu and T.accent2 or T.accent]))
-  hit(1, y0, startW, s.h, function() K.toggleStart(s) end)
-  -- Clock and tray, right to left
-  local rx = s.w
-  local ct = clockText(K.cfg.seconds)
-  local cw = #ct + 2
-  rx = rx - cw + 1
-  put(rx, my, centre(ct, cw), T.text, T.surface)
-  if th >= 3 then put(rx, my + 1, centre(clock.date(K.cfg, "%d %b"), cw), T.muted, T.surface) end
-  hit(rx, y0, s.w, s.h, function() K.launch("clock", nil, { screen = s }) end)
-  local items = trayItems(s)
-  for i = #items, 1, -1 do
-    local it = items[i]
-    local w = #it.label + 2
-    if rx - w < startW + 12 then break end
-    rx = rx - w
-    put(rx, my, " " .. it.label .. " ", it.color, T.surface)
-    local ix = rx
-    hit(rx, y0, rx + w - 1, s.h, function() it.fn(ix) end)
-  end
-  if s.w >= 60 then
-    local label = " \16 Run "
-    rx = rx - #label - 1
-    if rx > startW + 12 then
-      put(rx, my, label, T.muted, T.surface)
-      hit(rx, y0, rx + #label - 1, s.h, function() K.togglePalette(s) end)
-    else
-      rx = rx + #label + 1
-    end
-  end
-  -- Window buttons
-  local list = windowsOn(s)
-  table.sort(list, function(a, b) return a.opened < b.opened end)
-  local x = startW + 2
-  local avail = rx - x - 1
-  if #list > 0 and avail > 4 then
-    local bw = clamp(floor(avail / #list), 5, 26)
-    for _, w in ipairs(list) do
-      if x + bw - 1 > rx - 1 then break end
-      local focused = K.focus == w
-      local bg = focused and T.raised or T.surface
-      fill(x, y0, bw - 1, th, bg)
-      local g = gfx.GLYPHS[w.app and w.app.id or ""] or { "\7", T.accent }
-      put(x + 1, my, g[1], w.state == "min" and T.muted or g[2], bg)
-      put(x + 3, my, trunc(w.title, bw - 5), w.state == "min" and T.muted or T.text, bg)
-      if focused then fill(x, y0 + th - 1, bw - 1, 1, T.accent) end
-      if focused and th == 1 then put(x, y0, " ", T.text, T.accent) end
-      hit(x, y0, x + bw - 2, s.h, function()
-        if K.focus == w and w.state ~= "min" then K.minimize(w) else K.focusWindow(w) end
-      end)
-      x = x + bw
-    end
-  end
-end
-
-local function visibleApps(search, category)
-  local list = {}
-  search = (search or ""):lower()
-  for _, a in ipairs(APPS) do
-    local matchesCategory = not category or category == "All" or a.category == category
-    if category == "Favorites" then for _,id in ipairs(K.cfg.desktop)do if id==a.id then matchesCategory=true end end end
-    if not a.hidden and matchesCategory and (search == "" or a.name:lower():find(search, 1, true) or a.id:find(search, 1, true)) then
-      list[#list + 1] = a
-    end
-  end
-  return list
-end
-
-local function drawStartMenu(s)
-  local m = s.menu
-  local th = s.taskH
-  local mw = min(s.w, 50)
-  local apps = visibleApps(m.search, m.search ~= "" and "All" or (m.category or "All"))
-  local cols = mw >= 44 and 2 or 1
-  local tileW, tileH = floor((mw - 2) / cols), 3
-  local maxH = workHeight(s) - 1
-  local gridRows = ceil(#apps / cols)
-  local mh = min(maxH, 7 + gridRows * tileH)
-  local x0, y0 = 1, s.h - th - mh + 1
-  hit(1, 1, s.w, s.h, function() s.menu = nil end)
-  fill(x0, y0, mw, mh, T.surface)
-  fill(x0, y0, mw, 1, T.raised)
-  put(x0 + 1, y0, trunc(greeting() .. ", " .. K.cfg.user, mw - 10), T.text, T.raised)
-  local date = clock.date(K.cfg, "%a %d %b")
-  if mw > #date + 20 then put(x0 + mw - #date - 1, y0, date, T.muted, T.raised) end
-  local query = (m.search ~= "" and m.search) or "Type to search apps"
-  put(x0 + 1, y0 + 1, "\16 ", T.accent, T.surface)
-  put(x0 + 3, y0 + 1, trunc(query, mw - 4), m.search ~= "" and T.text or T.muted, T.surface)
-  hit(x0, y0, x0 + mw - 1, y0 + mh - 1, function() end)
-  local categories={"All"};for _,name in ipairs(catalog.categories)do categories[#categories+1]=name end
-  local index=1;for i,name in ipairs(categories)do if name==(m.category or "All")then index=i end end
-  put(x0+2,y0+2,"Category: "..(m.category or "All"),T.accent,T.surface)
-  button(x0+mw-9,y0+2," < ",T.text,T.raised,function()m.category=categories[(index-2)%#categories+1];m.scroll=0 end)
-  button(x0+mw-5,y0+2," > ",T.text,T.raised,function()m.category=categories[index%#categories+1];m.scroll=0 end)
-  local gy = y0 + 3
-  local visible = max(1, floor((mh - 7) / tileH))
-  m.scroll = clamp(m.scroll or 0, 0, max(0, gridRows - visible))
-  if gridRows > visible then
-    hit(x0, gy, x0 + mw - 1, gy + visible * tileH - 1, nil, {
-      scroll = function(dir) m.scroll = (m.scroll or 0) + dir end,
-    })
-  end
-  for i, a in ipairs(apps) do
-    local r = floor((i - 1) / cols) - m.scroll
-    local c = (i - 1) % cols
-    if r >= 0 and r < visible then
-      local tx, ty = x0 + 1 + c * tileW, gy + r * tileH
-      gfx.icon(B, tx, ty, a.id)
-      put(tx + 5, ty, trunc(a.name, tileW - 6), T.text, T.surface)
-      put(tx + 5, ty + 1, trunc(a.desc or "", tileW - 6), T.muted, T.surface)
-      hit(tx, ty, tx + tileW - 2, ty + tileH - 1, function()
-        s.menu = nil
-        K.launch(a.id, nil, { screen = s })
-      end)
-    end
-  end
-  if gridRows > visible then
-    -- Scroll-only regions must not mask the tile click handlers above.
-    local py = y0 + mh - 2
-    button(x0 + 1, py, " < Prev ", T.text, T.raised, function() m.scroll = max(0, m.scroll - visible) end)
-    button(x0 + mw - 9, py, " Next > ", T.text, T.raised, function() m.scroll = min(gridRows - visible, m.scroll + visible) end)
-  end
-  -- A dedicated mode row keeps the action separate from app pagination/power.
-  local modeY=y0+mh-3
-  local label=" Big Picture "
-  local modeX=x0+floor((mw-#label)/2)
-  if K.primaryMonitorName then
-    button(modeX,modeY,label,T.bg,T.accent,function()
-      s.menu=nil;K.palette=nil
-      local ok=K.setFullSync(false)
-      if ok then local target=K.pictureScreen();if target then target.picture={view="home",page=1,path="/",category="Favorites"}end;markAll()end
-    end)
-  else put(modeX,modeY,label,T.muted,T.surface)end
-  -- Power row
-  local py = y0 + mh - 1
-  fill(x0, py, mw, 1, T.raised)
-  local bx = x0 + 1
-  bx = button(bx, py, " Settings ", T.text, T.raised, function() s.menu = nil; K.launch("settings", nil, { screen = s }) end) + 1
-  bx = button(bx, py, " Run ", T.text, T.raised, function() s.menu = nil; K.togglePalette(s) end) + 1
-  local right = { { " Exit ", function() K.confirmPower(s, "exit") end },
-    { " Restart ", function() K.confirmPower(s, "reboot") end },
-    { " Off ", function() K.confirmPower(s, "shutdown") end } }
-  local rx = x0 + mw - 1
-  for i = #right, 1, -1 do
-    local label = right[i][1]
-    rx = rx - #label
-    if rx <= bx then break end
-    button(rx, py, label, i == 3 and T.danger or T.muted, T.raised, right[i][2])
-    rx = rx - 1
-  end
-end
-
-local function drawPopup(s)
-  local p = s.popup
-  local w = 0
-  for _, it in ipairs(p.items) do w = max(w, #it.label) end
-  if p.title then w = max(w, #p.title) end
-  w = min(s.w - 2, w + 4)
-  local h = #p.items + (p.title and 1 or 0)
-  local x = clamp(p.x, 1, s.w - w + 1)
-  local y = p.y or (workHeight(s) - h + 1)
-  y = clamp(y, 1, workHeight(s) - h + 1)
-  hit(1, 1, s.w, s.h, function() s.popup = nil end)
-  shade(x + 1, y + h, w, 1)
-  shade(x + w, y + 1, 1, h)
-  fill(x, y, w, h, T.surface)
-  local yy = y
-  if p.title then
-    fill(x, yy, w, 1, T.raised)
-    put(x + 1, yy, trunc(p.title, w - 2), T.accent, T.raised)
-    yy = yy + 1
-  end
-  for _, it in ipairs(p.items) do
-    put(x + 2, yy, trunc(it.label, w - 3), it.disabled and T.muted or (it.color or T.text), T.surface)
-    if not it.disabled and it.fn then
-      local fn = it.fn
-      hit(x, yy, x + w - 1, yy, function()
-        if not it.stay then s.popup = nil end
-        fn()
-      end)
-    else
-      hit(x, yy, x + w - 1, yy, function() end)
-    end
-    yy = yy + 1
-  end
-end
-
-function K.popup(s, x, y, items, title)
-  s.popup = { x = x, y = y, items = items, title = title }
-  s.menu = nil
-  markDirty(s)
-end
-
-function K.windowMenu(w, s)
-  local items = {
-    { label = w.state == "max" and "Restore" or "Maximise", fn = function() K.toggleMax(w) end },
-    { label = "Snap left", fn = function() K.snap(w, "left") end },
-    { label = "Snap right", fn = function() K.snap(w, "right") end },
-    { label = "Minimise", fn = function() K.minimize(w) end },
-  }
-  if s.touch and w.state == "normal" then
-    items[#items + 1] = { label = "Move (tap a spot)", fn = function() K.moveMode = { win = w, screen = s } end }
-  end
-  for _, d in ipairs(desktops()) do
-    if d ~= w.screen then
-      items[#items + 1] = { label = "Move to " .. (d.kind == "term" and "computer" or d.name), fn = function() K.moveToScreen(w, d) end }
-    end
-  end
-  items[#items + 1] = { label = "Close", color = T.danger, fn = function() K.closeWindow(w) end }
-  K.popup(s, w.x + w.w - 4 * (s.touch and 5 or 3), w.y + 1, items, w.title)
-end
-
-function K.musicPopup(s, x)
-  local info = audio.info()
-  local items = {}
-  if info.disc then
-    items[#items + 1] = { label = "Stop the record", fn = function() audio.stopDisc() end }
-  end
-  if info.state ~= "stopped" then
-    items[#items + 1] = { label = info.state == "playing" and "Pause" or "Play", fn = audio.toggle }
-    items[#items + 1] = { label = "Next", fn = audio.next }
-    items[#items + 1] = { label = "Previous", fn = audio.prev }
-    items[#items + 1] = { label = "Stop", fn = audio.stop }
-  end
-  items[#items + 1] = { label = "Open Music", fn = function() K.launch("music", nil, { screen = s }) end }
-  K.popup(s, x, nil, items, info.title or info.discTitle or "Music")
-end
-
-function K.volumePopup(s, x)
-  local function pct() return floor((K.cfg.musicVolume or 0) * 100 + 0.5) .. "%" end
-  local function bal()
-    local b = floor((K.cfg.balance or 0) * 100 + 0.5)
-    return b == 0 and "centre" or (b < 0 and (-b .. "% left") or (b .. "% right"))
-  end
-  local items
-  items = {
-    { label = "Louder (" .. pct() .. ")", stay = true, fn = function() audio.setVolume((K.cfg.musicVolume or 0) + 0.1); items[1].label = "Louder (" .. pct() .. ")"; items[2].label = "Quieter (" .. pct() .. ")" end },
-    { label = "Quieter (" .. pct() .. ")", stay = true, fn = function() audio.setVolume((K.cfg.musicVolume or 0) - 0.1); items[1].label = "Louder (" .. pct() .. ")"; items[2].label = "Quieter (" .. pct() .. ")" end },
-    { label = "Balance left", stay = true, fn = function() audio.setBalance((K.cfg.balance or 0) - 0.25); items[5].label = "Balance: " .. bal() end },
-    { label = "Balance right", stay = true, fn = function() audio.setBalance((K.cfg.balance or 0) + 0.25); items[5].label = "Balance: " .. bal() end },
-    { label = "Balance: " .. bal(), disabled = true },
-    { label = (K.cfg.sounds and "Mute" or "Unmute") .. " system sounds", fn = function() K.cfg.sounds = not K.cfg.sounds; K.saveConfig() end },
-    { label = "Test left speaker", stay = true, fn = function() audio.note("bell", 12, -1, 1.5) end },
-    { label = "Test right speaker", stay = true, fn = function() audio.note("bell", 12, 1, 1.5) end },
-  }
-  K.popup(s, x, nil, items, "Sound")
-end
-
-function K.drivePopup(s, x, d)
-  local items = {}
-  if d.mount then
-    items[#items + 1] = { label = "Open /" .. d.mount, fn = function() K.launch("files", { "/" .. d.mount }, { screen = s }) end }
-  end
-  if d.audio then
-    items[#items + 1] = { label = "Play " .. trunc(d.audio, 24), fn = function() audio.playDisc(d.name) end }
-    items[#items + 1] = { label = "Stop the record", fn = function() audio.stopDisc() end }
-  end
-  if d.mount then
-    items[#items + 1] = { label = "Label...", fn = function()
-      K.spawn(function()
-        local text = K.api.prompt("Label the disk", "New label", d.label or "")
-        if text then pcall(peripheral.call, d.name, "setDiskLabel", text ~= "" and text or nil); os.queueEvent("ccos_hw") end
-      end, { title = "Label" })
-    end }
-  end
-  items[#items + 1] = { label = "Eject", color = T.warn, fn = function()
-    K.spawn(function() pcall(peripheral.call, d.name, "ejectDisk") end, { title = "Eject" })
-  end }
-  K.popup(s, x, nil, items, d.label or (d.audio and "Record") or "Disk")
-end
-
-function K.notificationPopup(s, x)
-  K.unread = 0
-  local items = {}
-  for i = 1, min(10, #K.notifs) do
-    local n = K.notifs[i]
-    items[#items + 1] = { label = clock.format(K.cfg, false, floor(n.t / 1000)) .. " " .. trunc(n.title .. (n.text ~= "" and (": " .. n.text) or ""), 44),
-      color = n.color, fn = n.action }
-  end
-  if #items == 0 then items[1] = { label = "Nothing new", disabled = true } end
-  items[#items + 1] = { label = "Clear all", color = T.muted, fn = function() K.notifs = {}; K.toasts = {} end }
-  K.popup(s, x, nil, items, "Notifications")
-end
-
-function K.toggleStart(s)
-  if K.device.pocket and s.kind=="term"then pocketUI.home();return end
-  if s.menu then s.menu = nil else s.menu = { search = "" }; s.popup = nil end
+  -- Keep the ring turning until boot finishes.
   markDirty(s)
 end
 
 function K.confirmPower(s, what)
-  s.menu = nil
   local words = { exit = "Exit to CraftOS", reboot = "Restart the computer", shutdown = "Shut down the computer" }
-  K.dialog({ screen = s, title = words[what] .. "?", text = "Open windows will close.", buttons = { "Cancel", words[what] },
+  K.dialog({ screen = s, title = words[what] .. "?", text = "Open apps will close and unsaved work is lost.", buttons = { "Cancel", words[what] },
     cb = function(i)
       if i == 2 then K.power = what; K.running = false end
     end })
 end
 
+-- Big Picture: a Windows 8.1 message band across the full width (drawn by
+-- the picture module so dialogs and its own prompts look the same).
+local function drawBand(s, d)
+  local buttons = {}
+  for i, label in ipairs(d.buttons) do buttons[i] = { label, function() answer(s, d, i) end } end
+  picture.band(s, d.title or "", d.text or "", buttons, nil, { field = d.field, primary = d.choice or d.enterChoice or #d.buttons })
+end
+
 local function drawDialog(s, d)
+  if s.role == "picture" and s.w >= 40 then return drawBand(s, d) end
   local w = min(s.w - (K.device.pocket and 2 or 4), 52)
   local total=0;for _,label in ipairs(d.buttons)do total=total+#label+3 end
   local stacked=total>w-2
   local extra=stacked and #d.buttons-1 or 0
   local lines=wrap(d.text,w-4)
-  local maxLines=max(0,workHeight(s)-6-(d.field and 2 or 0)-extra)
+  local maxLines=max(0,s.h-6-(d.field and 2 or 0)-extra)
   while #lines>maxLines do table.remove(lines)end
   local h = 3 + #lines + (d.field and 2 or 0) + 1+extra
-  local x, y = floor((s.w - w) / 2) + 1, max(1, floor((workHeight(s) - h) / 2))
+  local x, y = floor((s.w - w) / 2) + 1, max(1, floor((s.h - h) / 2))
   hit(1, 1, s.w, s.h, function() end)
   shade(x + 1, y + h, w, 1)
   shade(x + w, y + 1, 1, h)
@@ -3122,152 +2397,6 @@ local function drawDialog(s, d)
     put(bx,by,label,primary and T.bg or T.text,primary and T.accent or T.raised)
     local index=i;hit(bx,by,bx+#label-1,by,function()answer(s,d,index)end)
   end
-end
-
-local function drawToasts(s)
-  local tw = min(40, s.w - 4)
-  local y = 2
-  for _, t in ipairs(K.toasts) do
-    local n = t.n
-    local lines = n.text ~= "" and wrap(n.text, tw - 4) or {}
-    local h = 2 + min(2, #lines)
-    if y + h > workHeight(s) then break end
-    local x = s.w - tw
-    shade(x + 1, y + h, tw, 1)
-    shade(x + tw, y + 1, 1, h)
-    fill(x, y, tw, h, T.surface)
-    fill(x, y, 1, h, n.color or T.accent)
-    put(x + 2, y, trunc(n.title, tw - 6), T.text, T.surface)
-    put(x + tw - 2, y, "\215", T.muted, T.surface)
-    for i = 1, min(2, #lines) do put(x + 2, y + i, lines[i], T.muted, T.surface) end
-    local toast = t
-    hit(x, y, x + tw - 1, y + h - 1, function()
-      for i, other in ipairs(K.toasts) do if other == toast then table.remove(K.toasts, i); break end end
-      if n.action then n.action() end
-    end)
-    y = y + h + 1
-  end
-end
-
-------------------------------------------------------------------------
--- The command palette
-------------------------------------------------------------------------
-
-local COMMANDS, CMD_ORDER = {}, {}
-
-local function suggestions(text)
-  local list = {}
-  local first = text:match("^%s*(%S*)") or ""
-  local lower = text:lower()
-  if text == "" then
-    for _, a in ipairs(visibleApps("")) do list[#list + 1] = { label = a.name, hint = a.desc or "", run = "open " .. a.id } end
-    return list
-  end
-  for _, a in ipairs(visibleApps(lower)) do
-    list[#list + 1] = { label = "Open " .. a.name, hint = a.desc or "", run = "open " .. a.id }
-  end
-  for _, n in ipairs(CMD_ORDER) do
-    if n:find(first:lower(), 1, true) == 1 then
-      local c = COMMANDS[n]
-      list[#list + 1] = { label = c.usage, hint = c.desc, run = (first == n and text) or n, complete = n .. " " }
-    end
-  end
-  if #list == 0 then list[1] = { label = "Run \"" .. text .. "\" in a terminal", hint = "shell command", run = "run " .. text } end
-  return list
-end
-
-function K.togglePalette(s)
-  if K.palette then
-    K.palette = nil
-  else
-    K.palette = { screen = s or K.activeScreen(), text = "", sel = 1, out = {} }
-  end
-  markAll()
-end
-
-local function runPalette(line)
-  local p = K.palette
-  if not p or line:match("^%s*$") then return end
-  p.out = { { "> " .. line, T.muted } }
-  local out = function(text, color)
-    for _, l in ipairs(wrap(tostring(text), 66)) do p.out[#p.out + 1] = { l, color or T.text } end
-    if #p.out > 40 then table.remove(p.out, 2) end
-    markDirty(p.screen)
-  end
-  local words = line:match("^%s*(%S+)")
-  K.spawn(function()
-    local ok, handled = pcall(K.exec, line, out, p.screen)
-    if not ok then out(handled, T.danger) end
-    if ok and handled == false then out("Unknown command. Try \"help\".", T.warn) end
-    if K.palette == p and (words == "open" or words == "run") then K.palette = nil; markAll() end
-  end, { title = "Command" })
-  p.text, p.sel = "", 1
-end
-
-local function drawPalette(s)
-  local p = K.palette
-  local w = min(s.w - 4, 72)
-  local x = floor((s.w - w) / 2) + 1
-  local sug = suggestions(p.text)
-  local shown = min(#sug, #p.out > 0 and 3 or 7)
-  local outN = min(#p.out, max(0, workHeight(s) - 6 - shown))
-  local h = 2 + shown + (outN > 0 and outN + 1 or 0) + 1
-  local y = 2
-  hit(1, 1, s.w, s.h, function() K.palette = nil; markAll() end)
-  shade(x + 1, y + h, w, 1)
-  shade(x + w, y + 1, 1, h)
-  fill(x, y, w, h, T.surface)
-  hit(x, y, x + w - 1, y + h - 1, function() end)
-  fill(x, y, w, 1, T.raised)
-  put(x + 1, y, "\16", T.accent, T.raised)
-  local text = p.text
-  if #text > w - 5 then text = text:sub(-(w - 5)) end
-  put(x + 3, y, text ~= "" and text or "", T.text, T.raised)
-  if p.text == "" then put(x + 3, y, "Type a command or an app name", T.muted, T.raised) end
-  s.cursor = { x = x + 3 + #text, y = y, color = T.accent }
-  p.sel = clamp(p.sel, 1, max(1, #sug))
-  for i = 1, shown do
-    local it = sug[i]
-    local yy = y + 1 + i
-    local sel = i == p.sel
-    local bg = sel and T.select or T.surface
-    fill(x, yy, w, 1, bg)
-    put(x + 2, yy, trunc(it.label, floor(w * 0.45)), T.text, bg)
-    put(x + floor(w * 0.45) + 3, yy, trunc(it.hint, w - floor(w * 0.45) - 5), sel and T.text or T.muted, bg)
-    hit(x, yy, x + w - 1, yy, function() runPalette(it.run) end)
-  end
-  if outN > 0 then
-    local oy = y + 2 + shown + 1
-    for i = 1, outN do
-      local line = p.out[#p.out - outN + i]
-      put(x + 2, oy + i - 1, trunc(line[1], w - 4), line[2], T.surface)
-    end
-  end
-  put(x + 2, y + h - 1, trunc("Enter run   Tab complete   Up/Down choose   Alt+Space close", w - 4), T.muted, T.surface)
-end
-
-local function paletteInput(ev)
-  local p = K.palette
-  local e = ev[1]
-  if e == "char" then p.text = p.text .. ev[2]; p.sel = 1
-  elseif e == "paste" then p.text = p.text .. ev[2]
-  elseif e == "key" then
-    local k = ev[2]
-    local sug = suggestions(p.text)
-    if k == keys.backspace then p.text = p.text:sub(1, -2); p.sel = 1
-    elseif k == keys.enter then
-      local it = sug[p.sel]
-      if p.text ~= "" and not COMMANDS[p.text:match("^%s*(%S+)") or ""] and it then runPalette(it.run)
-      elseif p.text == "" and it then runPalette(it.run)
-      else runPalette(p.text) end
-    elseif k == keys.tab then
-      local it = sug[p.sel]
-      if it then p.text = it.complete or it.run end
-    elseif k == keys.up then p.sel = p.sel - 1
-    elseif k == keys.down then p.sel = p.sel + 1
-    end
-  end
-  markDirty(p.screen)
 end
 
 ------------------------------------------------------------------------
@@ -3440,35 +2569,16 @@ local function compose(s)
     drawPanel(s)
   elseif K.saver then
     drawSaver(s)
-  elseif s.kind=="term" and K.pictureScreen()then
-    inputConsole.draw(s,K.pictureScreen())
-    local d=topDialog(s);if d and not d.field then drawDialog(s,d)end
-  elseif s.kind=="term"and K.device.pocket then
+  elseif s.role == "console" then
+    inputConsole.draw(s, K.pictureScreen())
+    local d = topDialog(s); if d and not d.field then drawDialog(s, d) end
+  elseif s.role == "pocket" then
     pocketUI.draw(s)
-    if s.popup then drawPopup(s)end
-    if K.palette and K.palette.screen==s then drawPalette(s)end
-    local d=topDialog(s);if d then drawDialog(s,d)end
+    local d = topDialog(s); if d then drawDialog(s, d) end
   elseif s.role == "picture" then
     picture.draw(s)
-    local d = topDialog(s); if d then drawDialog(s,d) end
-  else
-    drawWall(s)
-    drawIcons(s)
-    for _, w in ipairs(wins) do
-      if w.screen == s and w.state ~= "min" then drawWindow(s, w) end
-    end
-    drawTaskbar(s)
-    -- Keep active app controls clear; unread notifications remain in the tray.
-    if not K.focus or K.focus.screen~=s or K.focus.state=="min"then drawToasts(s)end
-    if s.menu then drawStartMenu(s) end
-    if s.popup then drawPopup(s) end
-    if K.palette and K.palette.screen == s then drawPalette(s) end
     local d = topDialog(s)
-    if d then drawDialog(s, d) end
-    if K.moveMode and K.moveMode.screen == s then
-      local msg = " Tap where the window's corner should go "
-      put(floor((s.w - #msg) / 2) + 1, 1, msg, T.bg, T.warn)
-    end
+    if d then drawDialog(s, d) else picture.toasts(s) end
   end
   -- Copy changed lines to the screen.
   local tgt, cache = s.target, s.cache
@@ -3482,10 +2592,12 @@ local function compose(s)
     end
   end
   local cur = s.cursor
-  if not cur and not K.booting and not K.saver and s.role == "desktop" and not(s.kind=="term"and(K.pictureScreen()or(K.device.pocket and s.pocketHome)))and not s.menu and not s.popup
-    and not topDialog(s) and not (K.palette and K.palette.screen == s) then
-    local w = K.focus
-    if w and w.screen == s and w.state ~= "min" and w.buf.getCursorBlink and w.buf.getCursorBlink() then
+  if not cur and not K.booting and not K.saver and not topDialog(s) then
+    -- The blinking cursor of the app in front, where it is drawn.
+    local w
+    if s.role == "picture" then w = K.pictureApp(s)
+    elseif s.role == "pocket" and not s.pocketHome then w = K.focus end
+    if w and w.screen == s and w.buf.getCursorBlink and w.buf.getCursorBlink() then
       local cx, cy = w.buf.getCursorPos()
       if cx >= 1 and cx <= w.w and cy >= 1 and cy <= w.h then
         cur = { x = w.x + cx - 1, y = w.y + cy, color = w.buf.getTextColor() }
@@ -3502,43 +2614,14 @@ local function compose(s)
   end
 end
 
--- Full Sync fills the monitor and shares one transform with touch input.
-local function presentMirror(m, src)
-  m.dirty=false
-  local rows=mirror.rows(src.buf,src.w,src.h,m.w,m.h)
-  for y,row in ipairs(rows)do
-    local old=m.cache[y]
-    if not old or old[1]~=row[1]or old[2]~=row[2]or old[3]~=row[3]then
-      m.target.setCursorPos(1,y);m.target.blit(row[1],row[2],row[3]);m.cache[y]=row
-    end
-  end
-  local cur=src.lastCursor
-  if cur and cur.x>=1 and cur.x<=src.w and cur.y>=1 and cur.y<=src.h then
-    local x,y=mirror.target(cur.x,cur.y,src.w,src.h,m.w,m.h)
-    m.target.setCursorPos(x,y);m.target.setTextColor(cur.color);m.target.setCursorBlink(true)
-  else m.target.setCursorBlink(false)end
-end
-
 local function render()
-  local home = screenByName.term
   for _, s in ipairs(screens) do
-    if s.role == "mirror" and s.dirty then home.dirty = true end
-  end
-  for _, s in ipairs(screens) do
-    if s.dirty and s.role ~= "off" and s.role ~= "mirror" then
+    if s.dirty and s.role ~= "off" then
       s.dirty = false
       local ok, err = pcall(compose, s)
       if not ok then
         -- Usually a monitor removed mid-frame; peripheral events rebuild.
         logCrash({ title = "render " .. s.name }, err)
-      end
-      if s == home then
-        for _, m in ipairs(screens) do
-          if m.role == "mirror" then
-            local okM, errM = pcall(presentMirror, m, s)
-            if not okM then logCrash({ title = "mirror " .. m.name }, errM) end
-          end
-        end
       end
     end
   end
@@ -3557,51 +2640,15 @@ local function wakeSaver()
   end
 end
 
-local function dragTo(x, y)
-  local d = K.drag
-  local w = d.win
-  if d.kind == "move" then
-    if w.state ~= "normal" then
-      w.state = "normal"
-      w.w, w.h = w.normalW or w.w, w.normalH or w.h
-      d.dx = min(d.dx, w.w - 1)
-    end
-    w.x, w.y = x - d.dx, max(1, y - d.dy)
-  else
-    w.w, w.h = max(12, x - w.x), max(3, y - w.y - 1)
-    w.normalW, w.normalH = w.w, w.h
-  end
-  layout(w)
-end
-
 local function pointer(s, kind, btn, x, y)
   K.lastScreen = s
   if wakeSaver() or K.booting then return end
-  if kind == "drag" then
-    if K.drag then dragTo(x, y)
-    elseif capture then
+  if kind == "drag" or kind == "up" then
+    if capture then
       local w = capture.win
-      post(w.proc, { "mouse_drag", btn, x - w.x + 1, y - w.y, n = 4 })
+      post(w.proc, { kind == "drag" and "mouse_drag" or "mouse_up", btn, x - w.x + 1, y - w.y, n = 4 })
+      if kind == "up" then capture = nil end
     end
-    return
-  elseif kind == "up" then
-    if K.drag then K.drag = nil; markDirty(s)
-    elseif capture then
-      local w = capture.win
-      post(w.proc, { "mouse_up", btn, x - w.x + 1, y - w.y, n = 4 })
-      capture = nil
-    end
-    return
-  end
-  if K.moveMode and kind ~= "scroll" then
-    local w = K.moveMode.win
-    K.moveMode = nil
-    if w.screen == s and not w.proc.dead then
-      w.state = "normal"
-      w.x, w.y = x, y
-      layout(w)
-    end
-    markDirty(s)
     return
   end
   local h = hitAt(s, x, y)
@@ -3642,24 +2689,6 @@ end
 
 local held = {}
 
-local function shortcut(k)
-  local w = K.keyTarget()
-  if k == keys.space then K.togglePalette(screenByName.term)
-  elseif k == keys.tab then K.cycleFocus()
-  elseif k == keys.enter or k == keys.up then if w then K.toggleMax(w) end
-  elseif k == keys.down then if w then K.minimize(w) end
-  elseif k == keys.left then if w then K.snap(w, "left") end
-  elseif k == keys.right then if w then K.snap(w, "right") end
-  elseif k == keys.q then if w then K.closeWindow(w) end
-  elseif k == keys.m then if w then K.moveToNextScreen(w) end
-  elseif k == keys.a then K.launch("agent", nil, { screen = screenByName.term })
-  elseif k == keys.t then K.launch("terminal", nil, { screen = screenByName.term })
-  elseif k == keys.f then K.launch("files", nil, { screen = screenByName.term })
-  elseif k == keys.s then K.toggleStart(screenByName.term)
-  else return false end
-  return true
-end
-
 local function dialogInput(s, d, ev)
   local e = ev[1]
   if e == "char" or e == "paste" then
@@ -3667,70 +2696,53 @@ local function dialogInput(s, d, ev)
   elseif e == "key" then
     if ev[2] == keys.backspace then d.field.text = d.field.text:sub(1, -2)
     elseif ev[2] == keys.enter then answer(s, d, #d.buttons)
-    elseif ev[2] == keys.escape then answer(s,d,1) end
+    elseif ev[2] == keys.escape then answer(s, d, 1) end
   end
-  markDirty(s)
+  markAll()
 end
 
+-- The computer keyboard. Prompts come first wherever they are shown, then
+-- Big Picture: F2 returns to Start, the app in front gets every key, and
+-- on Start typing searches. A monitor's agent chat is typed on the console.
 local function keyboard(ev)
   local e = ev[1]
   if e == "key" then held[ev[2]] = true elseif e == "key_up" then held[ev[2]] = nil end
   if e ~= "key_up" and wakeSaver() then return end
   if K.booting then return end
   local alt = held[keys.leftAlt] or held[keys.rightAlt]
-  local pictureTarget=K.pictureScreen()
-  if pictureTarget then
-    if e=="key"and((alt and ev[2]==keys.a)or ev[2]==keys.f1)then K.launch("agent",{},{screen=pictureTarget});return end
-    for _,ss in ipairs(screens)do local dialog=topDialog(ss);if dialog and not dialog.field then
-      if e=="key"and ev[2]==keys.enter then answer(ss,dialog,dialog.enterChoice or 1)
-      elseif e=="key"and ev[2]==keys.escape then answer(ss,dialog,1)end
-      return
-    end end
-    inputConsole.keyboard(ev,pictureTarget);return
+  if e == "key" and ((alt and ev[2] == keys.a) or ev[2] == keys.f1) then
+    K.launch("agent", {}, { screen = K.homeScreen() }); return
   end
-  if e == "key" and ev[2] == keys.f1 then K.launch("agent", nil, {screen=screenByName.term}); return end
-  if alt and e == "key" and shortcut(ev[2]) then markAll(); return end
-  if alt and e == "char" then return end
-  if e=="key"and ev[2]==keys.escape then
-    local handled=false
-    if K.palette then K.palette=nil;handled=true end
-    for _,sc in ipairs(screens)do
-      local d=topDialog(sc)
-      if d then answer(sc,d,1);return end
-      if sc.menu or sc.popup then sc.menu,sc.popup=nil,nil;handled=true end
-    end
-    if handled then markAll();return end
-  end
-  if K.device.pocket and e=="key"and ev[2]==keys.f2 then pocketUI.home();return end
-  if K.palette and e ~= "key_up" then paletteInput(ev); return end
   for _, s in ipairs(screens) do
     local d = topDialog(s)
     if d and e ~= "key_up" then
       if d.field then dialogInput(s, d, ev)
-      elseif e=="key"then
-        if ev[2]==keys.left or ev[2]==keys.up then d.choice=((d.choice or d.enterChoice or #d.buttons)-2)%#d.buttons+1;markDirty(s)
-        elseif ev[2]==keys.right or ev[2]==keys.down then d.choice=(d.choice or d.enterChoice or #d.buttons)%#d.buttons+1;markDirty(s)
-        elseif ev[2]==keys.enter then answer(s,d,d.choice or d.enterChoice or #d.buttons)end
+      elseif e == "key" then
+        local n = #d.buttons
+        local cur = d.choice or d.enterChoice or n
+        if ev[2] == keys.left or ev[2] == keys.up or ev[2] == keys.tab and held[keys.leftShift] then d.choice = (cur - 2) % n + 1; markAll()
+        elseif ev[2] == keys.right or ev[2] == keys.down or ev[2] == keys.tab then d.choice = cur % n + 1; markAll()
+        elseif ev[2] == keys.enter or ev[2] == keys.numPadEnter then answer(s, d, cur)
+        elseif ev[2] == keys.escape then answer(s, d, 1) end
       end
       return
     end
   end
-  if K.device.pocket and e=="key"and K.agent.pending then
-    if ev[2]==keys.f3 then K.agent.approve(true);return elseif ev[2]==keys.f4 then K.agent.approve(false);return end
+  local ps = K.pictureScreen()
+  if ps then
+    if e == "key" and ev[2] == keys.f2 then picture.home(ps); return end
+    local v = ps.picture or {}
+    if ps.kind == "monitor" and v.view == "agent" and inputConsole.keyboard(ev, ps) then return end
+    local app = K.pictureApp(ps)
+    if app then post(app.proc, ev); return end
+    if e ~= "key_up" then picture.keyboard(ps, ev) end
+    return
   end
-  if K.device.pocket and pocketUI.keyboard(ev)then return end
-  for _, s in ipairs(screens) do
-    if s.menu and e ~= "key_up" then
-      if e == "char" then s.menu.search = s.menu.search .. ev[2]
-      elseif e == "key" and ev[2] == keys.backspace then s.menu.search = s.menu.search:sub(1, -2)
-      elseif e == "key" and ev[2] == keys.enter then
-        local first = visibleApps(s.menu.search)[1]
-        if first then s.menu = nil; K.launch(first.id, nil, { screen = s }) end
-      end
-      markDirty(s)
-      return
-    end
+  if e == "key" and ev[2] == keys.f2 then pocketUI.home(); return end
+  if e == "key" and K.agent.pending then
+    if ev[2] == keys.f3 then K.agent.approve(true); return elseif ev[2] == keys.f4 then K.agent.approve(false); return end
   end
+  if pocketUI.keyboard(ev) then return end
   local target = K.keyTarget()
   if target then post(target.proc, ev) end
 end
@@ -3791,23 +2803,23 @@ function K.launch(id, args, opts)
   opts = opts or {}
   args = args or {}
   local s = opts.screen or K.activeScreen()
-  if K.device.pocket and s.kind=="term"then
-    if id=="settings"then pocketUI.home("settings");return {id=0,virtual=true}end
-    s.pocketHome=false
-  end
-  if s.role=="picture"and ({files=true,music=true,settings=true,notifications=true,devices=true})[id]then
-    s.picture=s.picture or {page=1,path="/",category="Favorites"};s.picture.view=id;s.picture.page=1
-    if id=="files"and args[1]then s.picture.path=args[1]end
-    markDirty(s);return {id=0,virtual=true}
-  end
-  if s.role == "picture" and not K.canTouchApp(app,s) then
-    K.dialog({screen=s,title="Open desktop tool?",text=app.name.." needs the desktop. Switch to Full Sync?",buttons={"Cancel","Full Sync"},cb=function(i)if i==2 then K.setFullSync(true);K.launch(id,args,{screen=screenByName.term})end end})
-    return nil,"Full Sync required"
-
-  elseif s.role ~= "desktop" and s.role ~= "picture" then s = K.homeScreen() end
-  if s.role == "picture" and app.touch then s.picture=s.picture or {page=1,path="/",category="Favorites"};s.picture.view=id end
-  if id=="agent"then
-    for _,w in ipairs(wins)do if w.app and w.app.id==id and w.screen==s and not w.proc.dead then K.focusWindow(w);if s.role=="picture"then s.picture.appPid=w.id end;return w.proc end end
+  if not hosts(s) then s = K.homeScreen() end
+  if s.role == "pocket" and id == "settings" then pocketUI.home("settings"); return { id = 0, virtual = true } end
+  if s.role == "picture" then
+    s.picture = s.picture or { view = "home", page = 1, path = "/" }
+    local v = s.picture
+    if ({ files = true, music = true, settings = true, notifications = true, devices = true })[id] then
+      v.view, v.page, v.appPid, v.flyout = id, 1, nil, nil
+      if id == "files" and args[1] then v.path = args[1] end
+      markAll(); return { id = 0, virtual = true }
+    end
+    if not K.canTouchApp(app, s) then return nil, app.name .. " needs a bigger screen" end
+    -- Apps are single instance: opening one again brings it back.
+    if #args == 0 and not opts.new then
+      for _, w in ipairs(wins) do
+        if w.app and w.app.id == id and w.screen == s and not w.proc.dead then K.focusWindow(w); return w.proc end
+      end
+    end
   end
   local fn
   if app.shell then
@@ -3826,18 +2838,20 @@ function K.launch(id, args, opts)
   end
   local title = opts.title or (app.needsFile and args[1] and (app.name .. ": " .. fs.getName(args[1]))) or app.name
   local p = K.spawn(fn, { title = title, app = app, window = { screen = s, w = app.w, h = app.h } })
-  if s.role=="picture" then s.picture.appPid=p.id;markDirty(screenByName.term)end
   K.sfx("open")
   return p
 end
 
--- A shell command in a new terminal window that stays open afterwards.
-function K.runCommand(line, s)
+-- A shell command in a terminal that stays open afterwards. Commands the
+-- agent runs open in the background; Terminal on Start brings them up.
+function K.runCommand(line, s, background)
   local app = appById("terminal")
+  s = s or K.activeScreen()
+  if not hosts(s) then s = K.homeScreen() end
   return K.spawn(function()
     local ok = rootShell.run(line)
     waitToClose(ok)
-  end, { title = trunc(line, 30), app = app, window = { screen = s or K.activeScreen(), w = app.w, h = app.h } })
+  end, { title = trunc(line, 30), app = app, window = { screen = s, w = app.w, h = app.h, background = background } })
 end
 
 function K.addRecent(path)
@@ -3863,8 +2877,10 @@ function K.openFile(path, s)
 end
 
 ------------------------------------------------------------------------
--- Commands, for the shell (in /ccos/bin) and the palette
+-- Commands, for the shell (in /ccos/bin) and the agent
 ------------------------------------------------------------------------
+
+local COMMANDS, CMD_ORDER = {}, {}
 
 local function command(name, usage, desc, fn)
   COMMANDS[name] = { name = name, usage = usage, desc = desc, fn = fn }
@@ -4076,16 +3092,21 @@ command("banner", "banner <text>", "Print big letters, one per page", function(a
   if not ok then error(err, 0) end
   out("Printed " .. err .. " page(s)", T.ok)
 end)
-command("theme", "theme [name]", "Show or change the theme", function(a, out)
-  if a[1] then
-    if not THEMES[a[1]] then error("Themes: " .. table.concat(THEME_ORDER, ", "), 0) end
-    API.config("theme", a[1])
+local function colourIds(list)
+  local ids = {}
+  for _, c in ipairs(list) do ids[#ids + 1] = c.id end
+  return table.concat(ids, ", ")
+end
+command("colour", "colour [start|accent] [name]", "Show or change the Start and accent colours", function(a, out)
+  local which = a[1]
+  if which and which ~= "start" and which ~= "accent" then error("Usage: colour [start|accent] [name]", 0) end
+  if which and a[2] then
+    local ok, why = K.validateSetting(which .. "Color", a[2])
+    if not ok then error(why .. ". Choose: " .. colourIds(which == "start" and START_COLORS or ACCENT_COLORS), 0) end
+    API.config(which .. "Color", a[2])
   end
-  out("Theme " .. K.cfg.theme .. " (" .. table.concat(THEME_ORDER, ", ") .. ")")
-end)
-command("wallpaper", "wallpaper [name]", "Show or change the wallpaper", function(a, out)
-  if a[1] then API.config("wallpaper", a[1]) end
-  out("Wallpaper " .. K.cfg.wallpaper .. " (" .. table.concat(gfx.WALLPAPERS, ", ") .. ")")
+  out("Start " .. K.cfg.startColor .. " (" .. colourIds(START_COLORS) .. ")")
+  out("Accent " .. K.cfg.accentColor .. " (" .. colourIds(ACCENT_COLORS) .. ")")
 end)
 command("screens", "screens", "List the displays", function(_, out)
   for _, s in ipairs(screens) do
@@ -4093,15 +3114,14 @@ command("screens", "screens", "List the displays", function(_, out)
     out(padR(s.name, 12) .. padR(s.role, 9) .. (s.w or 0) .. "x" .. (s.h or 0) .. scale)
   end
 end)
-command("screen", "screen <name> <picture|desktop|mirror|panel|off> [scale]", "Set what a monitor shows", function(a, out)
+command("screen", "screen <name> <picture|panel|off> [scale]", "Set what a monitor shows", function(a, out)
   local name, role = a[1], a[2]
-  if not name or not (role == "picture" or role == "desktop" or role == "mirror" or role == "panel" or role == "off") then
-    error("Usage: screen <name> <picture|desktop|mirror|panel|off> [scale]", 0)
+  if not name or not (role == "picture" or role == "panel" or role == "off") then
+    error("Usage: screen <name> <picture|panel|off> [scale]", 0)
   end
-  if name == "term" then error("The computer's own screen is always a desktop", 0) end
+  if name == "term" then error("The computer runs Big Picture or its monitor's keyboard console", 0) end
   local conf = K.cfg.screens[name] or {}
   conf.role = role
-  if name==K.primaryMonitorName then K.cfg.fullSync=role=="mirror"end
   if a[3] then conf.scale = a[3] == "auto" and "auto" or tonumber(a[3]) end
   K.cfg.screens[name] = conf
   K.saveConfig()
@@ -4157,6 +3177,10 @@ local function writeBin()
     local h = fs.open(path, "w")
     if h then h.write(body); h.close() end
   end
+  -- Commands from older versions (the retired desktop) no longer exist.
+  for _, old in ipairs({ "theme", "wallpaper" }) do
+    if not COMMANDS[old] and fs.exists(dir .. "/" .. old .. ".lua") then fs.delete(dir .. "/" .. old .. ".lua") end
+  end
   for _, n in ipairs(CMD_ORDER) do
     stub(n, ("-- ccOS command; see `help %s`.\nif not ccos then printError(\"ccOS isn't running.\") return end\nccos.cli(%q, ...)\n"):format(n, n))
   end
@@ -4168,8 +3192,7 @@ local function writeBin()
     local appNames = {}
     for _, a in ipairs(APPS) do if not a.hidden then appNames[#appNames + 1] = a.id end end
     rootShell.setCompletionFunction("ccos/bin/open.lua", complete.build({ complete.choice, appNames, true }))
-    rootShell.setCompletionFunction("ccos/bin/theme.lua", complete.build({ complete.choice, THEME_ORDER }))
-    rootShell.setCompletionFunction("ccos/bin/wallpaper.lua", complete.build({ complete.choice, gfx.WALLPAPERS }))
+    rootShell.setCompletionFunction("ccos/bin/colour.lua", complete.build({ complete.choice, { "start", "accent" } }))
     rootShell.setCompletionFunction("ccos/bin/play.lua", complete.build(complete.file))
     rootShell.setCompletionFunction("ccos/bin/lp.lua", complete.build(complete.file))
     rootShell.setCompletionFunction("ccos/bin/help.lua", complete.build({ complete.choice, CMD_ORDER }))
@@ -4202,7 +3225,16 @@ function API.isPocket()return K.device.pocket end
 -- Whether the last tap or click came from a monitor.
 function API.touchInput() return K.lastTouch == true end
 function API.pictureScreenName()local s=K.pictureScreen();return s and s.name end
-function API.setFullSync(on)return K.setFullSync(on)end
+-- Read or set the Big Picture view (home, apps, music, files, settings, ...).
+function API.pictureView(view)
+  local s=K.pictureScreen();if not s then return nil end
+  s.picture=s.picture or {view="home",page=1,path="/"}
+  if view~=nil then
+    if type(view)~="string"then error("Expected a view name",2)end
+    s.picture.view,s.picture.page,s.picture.flyout,s.picture.appPid=view,1,nil,nil;markAll()
+  end
+  return s.picture.view
+end
 function API.isTouch()
   local s = callerScreen()
   return s and s.touch or false
@@ -4310,11 +3342,11 @@ function API.prompt(title, text, default)
 end
 
 function K.validateSetting(key, value)
-  local booleans={clock24=true,seconds=true,leadingZero=true,sounds=true,touchSounds=true,shadows=true,swapSpeakers=true,agentConfirm=true,fullSync=true,autoUpdates=true}
+  local booleans={clock24=true,seconds=true,leadingZero=true,sounds=true,touchSounds=true,swapSpeakers=true,agentConfirm=true,autoUpdates=true}
   if booleans[key] then return type(value)=="boolean", "Expected a boolean" end
   if key=="timezone" then return type(value)=="string" and clock.valid(value), "Unsupported time zone" end
-  if key=="theme" then return type(value)=="string" and THEMES[value]~=nil, "Unknown theme" end
-  if key=="wallpaper" then for _,v in ipairs(gfx.WALLPAPERS)do if value==v then return true end end;return false,"Unknown wallpaper" end
+  if key=="startColor" then for _,c in ipairs(START_COLORS)do if c.id==value then return true end end;return false,"Unknown Start colour" end
+  if key=="accentColor" then for _,c in ipairs(ACCENT_COLORS)do if c.id==value then return true end end;return false,"Unknown accent colour" end
   if key=="user" then return type(value)=="string" and #value>0 and #value<=40,"Name must be 1-40 characters" end
   if key=="agentModel" then return type(value)=="string" and #value<=160 and value:match("^[%w%._:/~%-]+$")~=nil,"Invalid model id" end
   local ranges={utcOffset={-720,840},musicVolume={0,1},uiVolume={0,1},balance={-1,1},idle={0,86400},panelRotate={4,3600},agentMaxSteps={1,40},agentMaxTokens={256,8192}}
@@ -4323,14 +3355,11 @@ function K.validateSetting(key, value)
 end
 function API.config(key, value)
   if value == nil then return K.cfg[key] end
-  if key=="fullSync"then return K.setFullSync(value)end
   K.cfg[key] = value
   K.saveConfig()
-  if key == "theme" then
+  if key == "startColor" or key == "accentColor" then
     for _, s in ipairs(screens) do if s.role ~= "off" then applyPalette(s.target); s.cache = {} end end
     os.queueEvent("ccos_theme")
-  elseif key == "wallpaper" then
-    for _, s in ipairs(screens) do s.wallKey = nil end
   elseif key == "swapSpeakers" then
     audio.detect()
   elseif key=="autoUpdates"and value and K.updates then K.updates.check(false)
@@ -4339,8 +3368,7 @@ function API.config(key, value)
   end
   markAll()
 end
-function API.themes() return THEME_ORDER, THEMES end
-function API.wallpapers() return gfx.WALLPAPERS end
+function API.colours() return START_COLORS, ACCENT_COLORS end
 function API.screens()
   local list = {}
   for _, s in ipairs(screens) do
@@ -4351,7 +3379,10 @@ function API.screens()
 end
 function API.setScreen(name, role, scale)
   local conf = K.cfg.screens[name] or {}
-  if role then conf.role = role;if name==K.primaryMonitorName then K.cfg.fullSync=role=="mirror"end end
+  if role then
+    if role ~= "picture" and role ~= "panel" and role ~= "off" then error("Roles: picture, panel, off", 2) end
+    conf.role = role
+  end
   if scale then conf.scale = scale end
   K.cfg.screens[name] = conf
   K.saveConfig()
@@ -4360,7 +3391,6 @@ end
 function API.hw() return K.hw end
 function API.recent() return K.cfg.recent end
 function API.addRecent(path) K.addRecent(path) end
-function API.desktopApps() return K.cfg.desktop end
 function API.exit() K.power = "exit"; K.running = false end
 function API.reboot() K.power = "reboot"; K.running = false end
 function API.shutdown() K.power = "shutdown"; K.running = false end
@@ -4516,7 +3546,7 @@ local function onTick()
   if K.booting and t - K.bootStart > 2200 then
     K.booting = false
     markAll()
-    K.notify(greeting() .. ", " .. K.cfg.user, "ccOS is ready. Alt+Space opens the command palette.", { icon = "about", quiet = true, silent = true })
+    K.notify(greeting() .. ", " .. K.cfg.user, K.device.pocket and "ccOS is ready. F2 returns to Start." or "ccOS is ready. Tap a tile, or press F2 for Start.", { icon = "about", quiet = true, silent = true })
   end
   local changed = false
   for i = #K.toasts, 1, -1 do
@@ -4526,7 +3556,7 @@ local function onTick()
   local minute = clockText(false)
   if minute ~= K.lastMinute or K.cfg.seconds then
     K.lastMinute = minute
-    for _, s in ipairs(screens) do if s.role == "desktop" then markDirty(s) end end
+    for _, s in ipairs(screens) do if s.role == "pocket" or s.role == "console" then markDirty(s) end end
   end
   for _, s in ipairs(screens) do if s.role == "panel" or s.role == "picture" then markDirty(s) end end
   if K.cfg.idle and K.cfg.idle > 0 and not K.saver and not K.booting and t - K.lastInput > K.cfg.idle * 1000 then
@@ -4565,11 +3595,7 @@ local function dispatch(ev)
     pointer(s, kind, ev[2], ev[3], ev[4])
   elseif e == "monitor_touch" then
     local s = screenByName[ev[2]]
-    if s and s.role == "mirror" then
-      local home = screenByName.term
-      local x,y=mirror.source(ev[3],ev[4],home.w,home.h,s.w,s.h)
-      if x then pointer(home,"touch",1,x,y)end
-    elseif s and s.role ~= "off" then
+    if s and s.role ~= "off" then
       pointer(s, "touch", 1, ev[3], ev[4])
     else
       broadcast(ev)
@@ -4856,9 +3882,9 @@ return function(K, J)
     end
     local ok,err=K.validateSetting(a.name,value);assert(ok,err);K.api.config(a.name,value);return {name=a.name,value=K.cfg[a.name]}
   end)
-  add("set_screen","Change a monitor role or text scale",{name=S("Monitor name"),role=S("Screen role",{"picture","desktop","mirror","panel","off"}),scale=N("Text scale 0.5 to 5"),auto_scale=B("Use responsive automatic text scale")},{"name","role"},true,function(a)
-    assert(a.name~="term","Computer is always a desktop");local found=false;for _,s in ipairs(K.api.screens())do if s.name==a.name then found=true end end;assert(found,"Unknown screen")
-    assert(({picture=true,desktop=true,mirror=true,panel=true,off=true})[a.role],"Invalid role")
+  add("set_screen","Change a monitor role (Big Picture, info panel or off) or text scale",{name=S("Monitor name"),role=S("Screen role",{"picture","panel","off"}),scale=N("Text scale 0.5 to 5"),auto_scale=B("Use responsive automatic text scale")},{"name","role"},true,function(a)
+    assert(a.name~="term","The computer follows its monitors");local found=false;for _,s in ipairs(K.api.screens())do if s.name==a.name then found=true end end;assert(found,"Unknown screen")
+    assert(({picture=true,panel=true,off=true})[a.role],"Invalid role")
     if a.scale then assert(a.scale>=0.5 and a.scale<=5 and a.scale*2==floor(a.scale*2),"Invalid scale")end
     K.api.setScreen(a.name,a.role,a.auto_scale and "auto"or a.scale);return K.api.screens()
   end)
@@ -4868,7 +3894,7 @@ return function(K, J)
   end)
   add("run_command","Run a CraftOS or ccOS command in a real computer terminal. Inspect output with read_window.",{command=S("Command line")},{"command"},true,function(a)
     assert(type(a.command)=="string" and #a.command<=4096,"Invalid command");local s;for _,x in ipairs(K.screens)do if x.name=="term"then s=x end end
-    return {process=K.runCommand(a.command,s).id}
+    return {process=K.runCommand(a.command,s,true).id}
   end)
   add("run_program","Run an existing Lua file in a computer terminal",{path=S("Lua program path")},{"path"},true,function(a)
     local p=path(a.path);assert(fs.exists(p)and not fs.isDir(p),"No program at that path")
@@ -4903,17 +3929,15 @@ return function(K, J)
   end)
   add("print_file","Print a text file on the connected printer",{path=S("Text file")},{"path"},true,function(a)local p=path(a.path);local ok,why=K.api.printText(fs.getName(p),read(p,32768));assert(ok,why);return {pages=why}end)
   add("get_time","Read the configured clock and time-zone policy",{}, {},false,function()return {time=K.clockText(true),date=K.api.date("%Y-%m-%d"),timezone=K.cfg.timezone,clock24=K.cfg.clock24,leadingZero=K.cfg.leadingZero,available_zones=J.array(K.clock.zones),offset_minutes=K.clock.offset(K.cfg)}end)
-  add("set_favorites","Change desktop icons or monitor favorites using installed app ids",{target=S("Which surface",{"desktop","monitor","both"}),ids={type="array",items={type="string"},description="Ordered app ids"}},{"target","ids"},true,function(a)
+  add("set_favorites","Change the apps pinned to Start using installed app ids",{ids={type="array",items={type="string"},description="Ordered app ids"}},{"ids"},true,function(a)
     assert(type(a.ids)=="table"and #a.ids<=100,"Expected at most 100 app ids")
     local ids,seen={},{}
     for _,id in ipairs(a.ids)do
       local valid=false;for _,app in ipairs(K.APPS)do if app.id==id and not app.hidden then valid=true end end
       assert(valid,"Unknown visible app: "..tostring(id));if not seen[id]then ids[#ids+1]=id;seen[id]=true end
     end
-    assert(a.target=="desktop"or a.target=="monitor"or a.target=="both","Invalid target")
-    if a.target~="monitor"then K.api.config("desktop",ids)end
-    if a.target~="desktop"then K.api.config("monitorFavorites",ids)end
-    return {target=a.target,ids=J.array(ids)}
+    K.api.config("monitorFavorites",ids)
+    return {ids=J.array(ids)}
   end)
   A.tools=tools
   function A.execute(name,args,skipReview)
@@ -5755,7 +4779,7 @@ C.tools = {
   {"logs","Log viewer","Read OS and agent activity logs","Developer"},
   {"sysinfo","System info","Runtime, storage and attached hardware","System"},
   {"display","Displays","Roles, scale and monitor sizes","System"},
-  {"palette","Theme gallery","Preview and apply system themes","System"},
+  {"palette","Colours","Choose Start and accent colours","System"},
   {"soundtest","Speaker test","Test stereo channels and instruments","Media"},
   {"metronome","Metronome","Adjust tempo and count beats","Media"},
   {"lights","Lights Out","Clear the grid by toggling neighbors","Games"},
@@ -5873,7 +4897,7 @@ return E
 ]=]},
   {"ccos/lib/gfx.lua",[=[
 -- ccOS graphics: pixel art drawn with teletext characters, big text,
--- app icons and generated wallpapers.
+-- app icons and the Metro face.
 --
 -- A teletext character (codes 128-159) is a 2x3 grid of pixels in two
 -- colours, so pixel art here is a list of strings of blit colour digits
@@ -6131,235 +5155,355 @@ function gfx.icon(t, x, y, name, scale)
   gfx.drawCells(t, x, y, cells)
 end
 
-------------------------------------------------------------------------
--- Wallpapers, generated per screen size
-------------------------------------------------------------------------
-
--- 2x2 ordered dither: pick a or b for a pixel at fraction v of the way.
-local BAYER = { { 0.125, 0.625 }, { 0.875, 0.375 } }
-local function dither(x, y, v, a, b)
-  return (v > BAYER[y % 2 + 1][x % 2 + 1]) and b or a
-end
-
--- Colour from gradient stops {{at, digit}, ...} at fraction v, dithered.
-local function gradient(stops, v, x, y)
-  if v <= stops[1][1] then return stops[1][2] end
-  for i = 2, #stops do
-    local a, b = stops[i - 1], stops[i]
-    if v <= b[1] then return dither(x, y, (v - a[1]) / (b[1] - a[1]), a[2], b[2]) end
-  end
-  return stops[#stops][2]
-end
-
-local function stars(cv, r, density, top)
-  for _ = 1, floor(cv.w * cv.h * density) do
-    local x, y = r(cv.w) + 1, r(floor(cv.h * top)) + 1
-    cv.set(x, y, r(5) == 0 and "0" or "8")
-  end
-end
-
-local function ridge(cv, base, amp, seed)
-  for x = 1, cv.w do
-    local f = x / cv.w
-    local top = floor(cv.h * (base + amp * (0.6 * math.sin(f * 7.3 + seed) + 0.4 * math.sin(f * 17.9 + seed * 2))))
-    for y = max(1, top), cv.h do cv.set(x, y, "f") end
-    cv.set(x, top, "7")
-  end
-end
-
-local WALLS = {}
-
-function WALLS.ccos(W, H)
-  local cv = gfx.canvas(W, H, "f")
-  local sky = { { 0, "f" }, { 0.25, "f" }, { 0.65, "c" }, { 0.9, "7" } }
-  for y = 1, H do
-    local v = (y - 1) / (H - 1)
-    for x = 1, W do cv.set(x, y, gradient(sky, v, x, y)) end
-  end
-  stars(cv, rng(7), 1 / 120, 0.6)
-  -- Two curtains of light: lime at the foot, cyan, then purple above.
-  local curtains = {
-    { base = 0.46, a1 = 0.09, f1 = 5.7, p1 = 0.8, a2 = 0.04, f2 = 15.1, height = 0.26, cols = { "5", "9", "a" } },
-    { base = 0.33, a1 = 0.07, f1 = 3.9, p1 = 2.4, a2 = 0.03, f2 = 10.7, height = 0.18, cols = { "9", "a", "2" } },
-  }
-  for _, c in ipairs(curtains) do
-    for x = 1, W do
-      local f = x / W
-      local foot = H * (c.base + c.a1 * math.sin(f * c.f1 + c.p1) + c.a2 * math.sin(f * c.f2 + c.p1 * 3))
-      local tall = H * c.height * (0.55 + 0.45 * math.sin(f * 9.1 + c.p1 * 2) ^ 2)
-      for y = max(1, floor(foot - tall)), min(H, floor(foot)) do
-        local k = (foot - y) / tall          -- 0 at the foot, 1 at the top
-        local col
-        if k < 0.12 then col = c.cols[1]
-        elseif k < 0.45 then col = c.cols[2]
-        elseif k < 0.8 then col = dither(x, y, (k - 0.45) / 0.35, c.cols[2], c.cols[3])
-        else col = dither(x, y, (k - 0.8) / 0.2, c.cols[3], cv.get(x, y)) end
-        cv.set(x, y, col)
-      end
-    end
-  end
-  ridge(cv, 0.80, 0.05, 1.3)
-  return cv
-end
-
-function WALLS.dusk(W, H)
-  local cv = gfx.canvas(W, H, "f")
-  local sky = { { 0, "f" }, { 0.35, "c" }, { 0.65, "a" }, { 0.85, "6" }, { 1, "1" } }
-  for y = 1, H do
-    local v = (y - 1) / (H - 1)
-    for x = 1, W do cv.set(x, y, gradient(sky, v, x, y)) end
-  end
-  stars(cv, rng(11), 1 / 160, 0.3)
-  ridge(cv, 0.78, 0.07, 0.4)
-  return cv
-end
-
-function WALLS.retro(W, H)
-  local cv = gfx.canvas(W, H, "f")
-  local horizon = floor(H * 0.58)
-  local sky = { { 0, "f" }, { 0.6, "c" }, { 1, "a" } }
-  for y = 1, horizon do
-    for x = 1, W do cv.set(x, y, gradient(sky, (y - 1) / horizon, x, y)) end
-  end
-  stars(cv, rng(3), 1 / 140, 0.4)
-  -- A striped sun sitting on the horizon.
-  local cx, r = floor(W / 2), floor(H * 0.26)
-  for y = horizon - r, horizon - 1 do
-    local band = (horizon - y) / r
-    if not (band < 0.45 and (y % 4 < 1)) then
-      local half = floor(math.sqrt(max(0, r * r - (horizon - y) ^ 2)) * 1.6)
-      local col = band > 0.6 and "4" or (band > 0.3 and "1" or "6")
-      for x = cx - half, cx + half do cv.set(x, y, col) end
-    end
-  end
-  -- Perspective grid below the horizon.
-  for y = horizon, H do
-    local d = (y - horizon + 1) / (H - horizon + 1)
-    for x = 1, W do
-      local col = "f"
-      if floor((d ^ 0.5) * 9 * 4) % 4 == 0 then col = "a" end
-      local u = (x - cx) / (d * W * 0.08 + 0.01)
-      if math.abs(u - floor(u + 0.5)) < 0.06 / d then col = "a" end
-      cv.set(x, y, col)
-    end
-  end
-  for x = 1, W do cv.set(x, horizon, "6") end
-  return cv
-end
-
-function WALLS.stars(W, H)
-  local cv = gfx.canvas(W, H, "f")
-  local r = rng(42)
-  for _ = 1, floor(W * H / 70) do
-    local x, y = r(W) + 1, r(H) + 1
-    local k = r(10)
-    cv.set(x, y, k == 0 and "0" or (k < 3 and "8" or (k < 5 and "3" or "7")))
-  end
-  return cv
-end
-
-function WALLS.solid(W, H)
-  local cv = gfx.canvas(W, H, "f")
-  local sky = { { 0, "f" }, { 1, "c" } }
-  for y = 1, H do
-    for x = 1, W do cv.set(x, y, gradient(sky, (y - 1) / (H - 1) * 0.7, x, y)) end
-  end
-  return cv
-end
-
-gfx.WALLPAPERS = { "ccos", "dusk", "retro", "stars", "solid" }
-
--- Wallpaper cells for a w by h character screen.
-function gfx.wallpaper(kind, w, h)
-  local make = WALLS[kind] or WALLS.ccos
-  return gfx.cells(make(w * 2, h * 3).rows(), "f")
-end
-
 -- The splash logo: a small ccos over the word mark.
 function gfx.logo(scale)
   return gfx.pixelText("CCOS", scale or 2, { "9", "5", "9", "a", "6", "a" }, "f")
 end
 
+------------------------------------------------------------------------
+-- Metro: a thin proportional heading face, monochrome tile glyphs and
+-- sub-cell geometry for the Big Picture Start screen. Everything here is
+-- drawn in teletext pixels (2x3 per cell, each 3x3 screen pixels square),
+-- so tile gaps, glyph centring and headings land on exact pixels.
+------------------------------------------------------------------------
+
+local metro = {}
+gfx.metro = metro
+
+local function unpackRows(spec, height)
+  local rows = {}
+  for row in spec:gmatch("%S+") do rows[#rows + 1] = row end
+  local w = #(rows[1] or "")
+  while #rows < (height or #rows) do rows[#rows + 1] = ("."):rep(w) end
+  return rows
+end
+
+-- Rows 1-7: capitals and ascenders; 3-7: x-height; 8-9: descenders.
+local FACE = {
+  A = "..#.. .#.#. .#.#. #...# ##### #...# #...#", B = "###. #..# #..# ###. #..# #..# ###.",
+  C = ".### #... #... #... #... #... .###", D = "###.. #..#. #...# #...# #...# #..#. ###..",
+  E = "#### #... #... ###. #... #... ####", F = "#### #... #... ###. #... #... #...",
+  G = ".#### #.... #.... #..## #...# #...# .####", H = "#...# #...# #...# ##### #...# #...# #...#",
+  I = "# # # # # # #", J = "..# ..# ..# ..# ..# ..# ##.",
+  K = "#...# #..#. #.#.. ##... #.#.. #..#. #...#", L = "#... #... #... #... #... #... ####",
+  M = "#.....# ##...## #.#.#.# #..#..# #.....# #.....# #.....#", N = "#...# ##..# ##..# #.#.# #..## #..## #...#",
+  O = ".####. #....# #....# #....# #....# #....# .####.", P = "###. #..# #..# ###. #... #... #...",
+  Q = ".####. #....# #....# #....# #..#.# #...#. .###.#", R = "###. #..# #..# ###. #.#. #..# #..#",
+  S = ".### #... #... .##. ...# ...# ###.", T = "##### ..#.. ..#.. ..#.. ..#.. ..#.. ..#..",
+  U = "#...# #...# #...# #...# #...# #...# .###.", V = "#...# #...# #...# .#.#. .#.#. .#.#. ..#..",
+  W = "#.....# #.....# #..#..# #..#..# #.#.#.# #.#.#.# .#...#.", X = "#...# .#.#. .#.#. ..#.. .#.#. .#.#. #...#",
+  Y = "#...# .#.#. .#.#. ..#.. ..#.. ..#.. ..#..", Z = "##### ....# ...#. ..#.. .#... #.... #####",
+  a = ".... .... .##. ...# .### #..# .###", b = "#... #... ###. #..# #..# #..# ###.",
+  c = "... ... .## #.. #.. #.. .##", d = "...# ...# .### #..# #..# #..# .###",
+  e = ".... .... .##. #..# #### #... .###", f = ".## #.. ### #.. #.. #.. #..",
+  g = ".... .... .### #..# #..# #..# .### ...# ###.", h = "#... #... ###. #..# #..# #..# #..#",
+  i = "# . # # # # #", j = ".# .. .# .# .# .# .# .# #.",
+  k = "#... #... #..# #.#. ##.. #.#. #..#", l = "# # # # # # #",
+  m = "....... ....... ###.##. #..#..# #..#..# #..#..# #..#..#", n = ".... .... ###. #..# #..# #..# #..#",
+  o = ".... .... .##. #..# #..# #..# .##.", p = ".... .... ###. #..# #..# #..# ###. #... #...",
+  q = ".... .... .### #..# #..# #..# .### ...# ...#", r = ".... .... #.## ##.. #... #... #...",
+  s = "... ... .## #.. .#. ..# ##.", t = "... .#. ### .#. .#. .#. ..#",
+  u = ".... .... #..# #..# #..# #..# .###", v = "..... ..... #...# #...# .#.#. .#.#. ..#..",
+  w = "..... ..... #...# #...# #.#.# #.#.# .#.#.", x = "..... ..... #...# .#.#. ..#.. .#.#. #...#",
+  y = ".... .... #..# #..# #..# #..# .### ...# ###.", z = ".... .... #### ..#. .#.. #... ####",
+  ["0"] = ".##. #..# #..# #..# #..# #..# .##.", ["1"] = "..#. .##. ..#. ..#. ..#. ..#. ..#.",
+  ["2"] = ".##. #..# ...# ..#. .#.. #... ####", ["3"] = "###. ...# ...# .##. ...# ...# ###.",
+  ["4"] = "...# ..## .#.# #..# #### ...# ...#", ["5"] = "#### #... #... ###. ...# ...# ###.",
+  ["6"] = ".##. #... #... ###. #..# #..# .##.", ["7"] = "#### ...# ..#. ..#. .#.. .#.. .#..",
+  ["8"] = ".##. #..# #..# .##. #..# #..# .##.", ["9"] = ".##. #..# #..# .### ...# ...# .##.",
+  [" "] = "... ... ... ... ... ... ...", [":"] = ". . # . . # .", ["."] = ". . . . . . #",
+  [","] = ". . . . . . # #", ["-"] = "... ... ... ### ... ... ...", ["'"] = "# # . . . . .",
+  ["!"] = "# # # # # . #", ["?"] = ".##. #..# ...# ..#. .#.. .... .#..",
+  ["/"] = "...# ...# ..#. ..#. .#.. .#.. #...", ["("] = ".# #. #. #. #. #. .#", [")"] = "#. .# .# .# .# .# #.",
+  ["&"] = ".##.. #..#. .##.. .#... #.#.# #..#. .##.#", ["+"] = "... ... .#. ### .#. ... ...",
+  ["_"] = ".... .... .... .... .... .... .... ####",
+}
+for ch, spec in pairs(FACE) do FACE[ch] = unpackRows(spec, 9) end
+metro.FACE = FACE
+
+local function faceGlyph(ch) return FACE[ch] or FACE[ch:upper()] or FACE["?"] end
+
+-- Width in teletext pixels of text in the heading face.
+function metro.textWidth(text, scale)
+  scale = scale or 1
+  local w = 0
+  for i = 1, #text do w = w + #faceGlyph(text:sub(i, i))[1] * scale + (i > 1 and scale or 0) end
+  return w
+end
+
+-- Draw text into a canvas at pixel (x, y), top of capitals. Returns end x.
+function metro.drawText(cv, x, y, text, color, scale)
+  scale = scale or 1
+  for i = 1, #text do
+    local g = faceGlyph(text:sub(i, i))
+    for r = 1, #g do
+      local row = g[r]
+      for c = 1, #row do
+        if row:sub(c, c) == "#" then
+          for dy = 0, scale - 1 do
+            for dx = 0, scale - 1 do cv.set(x + (c - 1) * scale + dx, y + (r - 1) * scale + dy, color) end
+          end
+        end
+      end
+    end
+    x = x + (#g[1] + 1) * scale
+  end
+  return x
+end
+
+-- Stamp a '#'/'.' bitmap into a canvas.
+function metro.stamp(cv, x, y, rows, color)
+  for r = 1, #rows do
+    local row = rows[r]
+    for c = 1, #row do
+      if row:sub(c, c) == "#" then cv.set(x + c - 1, y + r - 1, color) end
+    end
+  end
+end
+
+function metro.rect(cv, x, y, w, h, color)
+  for yy = y, y + h - 1 do for xx = x, x + w - 1 do cv.set(xx, yy, color) end end
+end
+
+-- Eight-by-eight white glyphs in the flat Metro idiom.
+local GLYPH = {
+  files = "###..... #..##### #......# #......# #......# #......# ########",
+  viewer = "#####... #...##.. #....#.. #.###.#. #......# #.####.# #......# ########",
+  notes = "######## #......# #.####.# #......# #.###..# #.....## #....##. ######..",
+  journal = ".######. ##.....# ##.##..# ##.....# ##.###.# ##.....# ##.....# .#######",
+  checklist = ".......# ......## .....##. #...##.. ##.##... .###.... ..#.....",
+  bookmarks = ".######. .######. .######. .######. .######. .######. .##..##. .#....#.",
+  music = "..###### ..###### ..#....# ..#....# ..#....# ###..### ###..### .#....#.",
+  piano = "######## #.#.#..# #.#.#..# #.#.#..# #.#.#..# ########",
+  clock = "..####.. .#....#. #..#...# #..#...# #..###.# #......# .#....#. ..####..",
+  worldclock = "..####.. .#.##.#. #..##..# ######## ######## #..##..# .#.##.#. ..####..",
+  calendar = ".#....#. ######## ######## #......# #.#.#.## #......# #.#.#..# ########",
+  focus = "..####.. .#....#. #..##..# #.#..#.# #.#..#.# #..##..# .#....#. ..####..",
+  stopwatch = "..###... ...#.... .#####.. #..#..#. #..#..#. #.....#. #.....#. .#####..",
+  timer = "######## .#....#. ..#..#.. ...##... ..#..#.. .#.##.#. ########",
+  calc = ".#...... ###.###. .#...... ........ #.#.###. .#...... #.#.###.",
+  units = "######## #.#.#.## #.#.#..# #......# ########",
+  percentage = "##....#. ##...#.. ....#... ...#.... ..#..... .#...##. #....##.",
+  base = ".#..###. ##..#.#. .#..#.#. .#..#.#. ###.###.",
+  random = "######## #......# #.#....# #..##..# #..##..# #....#.# #......# ########",
+  dice = ".######. #.####.# ######## ###..### ###..### ######## #.####.# .######.",
+  coin = "..####.. .######. ##....## ##.##.## ##.##.## ##....## .######. ..####..",
+  tally = ".#...#.. ###.##.. .#...#.. .....#.. ....###.",
+  textstats = "####### #...... .#..... ..#.... .#..... #...... #######",
+  textcase = ".#...... #.#..... #.#..##. ###....# #.#..### #.#.#..# .....###",
+  lines = "######## ........ ######.. ........ ####.... ........ ##......",
+  replace = ".####... #....#.. #....#.. #....#.. #....#.. .####... .....##. ......##",
+  urlencode = ".....##. ....#..# ....#..# ..##.##. .##.##.. #..#.... #..#.... .##.....",
+  base64 = "###.#.#. #...#.#. ###.###. #.#...#. ###...#.",
+  json = ".##..##. .#....#. .#....#. #......# .#....#. .#....#. .##..##.",
+  http = "...###.. ..#...#. .##....# #......# #......# .######.",
+  network = ".######. #......# ..####.. .#....#. ...##... ...##...",
+  terminal = "######## ######## #......# #.#....# #..#...# #.#.##.# #......# ########",
+  edit = "......## .....### ....###. ...###.. ..###... .###.... .##..... #.......",
+  lua = "..####.. .##..#.. ##...... ##...... ##...... .##...#. ..####..",
+  paint = "......## .....### ....###. ...###.. .##.#... ####.... ###..... .#......",
+  redstone = "....##.. ...##... ..##.... .######. ....##.. ...##... ..##....",
+  analog = ".##..... #..#.... #..#...# ....#..# .....##.",
+  bundled = "##.##.## ##.##.## ........ ##.##.## ##.##.## ........ ##.##.## ##.##.##",
+  peripherals = ".#..#... .#..#... ######.. ######.. .####... ..##.... ..##....",
+  inventory = "######## #......# ######## #..##..# #......# #......# ########",
+  energy = "#######. #.....#. #.###.## #.###.## #.....#. #######.",
+  fluids = "...#.... ..###... ..###... .#####.. #######. #######. .#####.. ..###...",
+  disks = "######## #.####.# #.####.# #......# #.####.# #.#..#.# #.####.# ########",
+  disk = "######## #.####.# #.####.# #......# #.####.# #.#..#.# #.####.# ########",
+  storage = "..####.. .###..#. ####...# ####...# ######## .######. ..####..",
+  backup = "...##... ..####.. .######. ...##... ...##... #..##..# #......# ########",
+  logs = "#.###### ........ #.###### ........ #.####.. ........ #.######",
+  sysinfo = "..#..#.. .######. ##....## .#....#. ##....## .######. ..#..#..",
+  display = "######## #......# #......# #......# ######## ...##... .######.",
+  palette = "..####.. .#....#. #.#..#.# #......# #.#...#. .#...#.. ..###...",
+  soundtest = "...#..#. ..##...# ####.#.# ####.#.# ..##...# ...#..#.",
+  metronome = "...##... ...##... ..#..#.. ..#.##.. .#.#..#. .##....# .#.....# ########",
+  lights = "..####.. .#....#. .#....#. .#....#. ..#..#.. ..####.. ..####..",
+  memory = "####.... #..#.... #..##### ####...# ...#...# ...#...# ...#####",
+  tictactoe = "..#..#.. ..#..#.. ######## ..#..#.. ..#..#.. ######## ..#..#.. ..#..#..",
+  guess = ".####. #....# .....# ...##. ..#... ...... ..#...",
+  print = "..####.. ..#..#.. ######## #......# #.####.# #.#..#.# ..####..",
+  tasks = "......#. ....#.#. ..#.#.#. ..#.#.#. #.#.#.#. #.#.#.#. ########",
+  settings = "...##... .#.##.#. ..####.. ###..### ###..### ..####.. .#.##.#. ...##...",
+  about = "..####.. .######. ###..### ######## ###..### ###..### .##..##. ..####..",
+  worm = "####.... #..#.... #..####. #.....#. ####..#. ...####.",
+  agent = "...#.... ...#.... ..###... #######. ..###... ...#..#. ...#.### ......#.",
+  notifications = "...##... ..####.. .######. .######. .######. ######## ...##...",
+  devices = ".#..#... .#..#... ######.. ######.. .####... ..##.... ..##....",
+  desktop = "######## #......# #......# #......# ######## ...##... .######.",
+}
+for id, spec in pairs(GLYPH) do GLYPH[id] = unpackRows(spec) end
+metro.GLYPH = GLYPH
+
+-- Interface marks. Circles are odd-sized so arrows sit on the exact centre.
+metro.MARKS = {
+  power = unpackRows("...#... .#.#.#. #..#..# #..#..# #.....# .#...#. ..###.."),
+  search = "...####. ..#....# ..#....# ..#....# ..#....# ...####. ..#..... .#...... #.......",
+  avatar = "......... ...###... ..#####.. ..#####.. ..#####.. ...###... ......... ..#####.. .#######.",
+  down = "...###... .##...##. .#..#..#. #...#...# #.#.#.#.# #..###..# .#..#..#. .##...##. ...###...",
+  up = "...###... .##...##. .#..#..#. #..###..# #.#.#.#.# #...#...# .#..#..#. .##...##. ...###...",
+  back = "...###... .##...##. .#..#..#. #..#....# #.#####.# #..#....# .#..#..#. .##...##. ...###...",
+  downSmall = "...##... ...##... ...##... .######. ..####.. ...##...",
+  upSmall = "...##... ..####.. .######. ...##... ...##... ...##...",
+  backSmall = ".#####. #..#..# #.#...# #..#..# #.....# .#####.",
+}
+for k, spec in pairs(metro.MARKS) do if type(spec) == "string" then metro.MARKS[k] = unpackRows(spec) end end
+
+function metro.glyph(id) return GLYPH[id] or GLYPH.about end
+
+-- Cells for a monochrome bitmap: fg digit on bg digit, offset by whole
+-- teletext pixels (ox in 0..1, oy in 0..2) inside its cell grid.
+local markCache = {}
+function metro.markCells(rows, fg, bg, ox, oy)
+  ox, oy = ox or 0, oy or 0
+  local key = tostring(rows) .. fg .. bg .. ox .. oy
+  local cached = markCache[key]
+  if cached then return cached end
+  local w, h = #rows[1] + ox, #rows + oy
+  local cv = gfx.canvas(w + w % 2, h + (3 - h % 3) % 3, bg)
+  metro.stamp(cv, 1 + ox, 1 + oy, rows, fg)
+  cached = gfx.cells(cv.rows(), bg)
+  markCache[key] = cached
+  return cached
+end
+
+-- A flat tile filling pw x ph cells with a one-pixel gap on its right and
+-- bottom edges (3 screen pixels each way, matching the 10px Start gutter).
+-- Returns a canvas the caller can draw on, and the visible pixel size.
+function metro.tileCanvas(pw, ph, color, gap)
+  local cv = gfx.canvas(pw * 2, ph * 3, color)
+  for y = 1, ph * 3 do cv.set(pw * 2, y, gap) end
+  for x = 1, pw * 2 do cv.set(x, ph * 3, gap) end
+  return cv, pw * 2 - 1, ph * 3 - 1
+end
+
+-- Centre a glyph inside a tile canvas above its label row.
+function metro.placeGlyph(cv, rows, pw, ph, color, label)
+  local vw, vh = pw * 2 - 1, ph * 3 - 1
+  local gw, gh = #rows[1], #rows
+  local x = floor((vw - gw) / 2) + 1
+  local y = floor((vh - gh) / 2) + 1
+  if label then y = min(y, (ph - 2) * 3 - gh - 1) end
+  metro.stamp(cv, x, max(2, y), rows, color)
+end
+
+-- Bitmap of text in the heading face, ready for markCells.
+local textCache, textCount = {}, 0
+function metro.textRows(text, scale)
+  scale = scale or 1
+  local key = scale .. ":" .. text
+  if textCache[key] then return textCache[key] end
+  if textCount > 64 then textCache, textCount = {}, 0; markCache = {} end
+  local w = max(1, metro.textWidth(text, scale))
+  local cv = gfx.canvas(w, 9 * scale, ".")
+  metro.drawText(cv, 1, 1, text, "#", scale)
+  local rows = cv.rows()
+  textCache[key], textCount = rows, textCount + 1
+  return rows
+end
+
 return gfx
 ]=]},
   {"ccos/lib/input.lua",[=[
--- Computer keyboard bridge for Big Picture. Never renders the desktop.
+-- The computer as Big Picture's keyboard. While the main monitor runs Big
+-- Picture, the computer shows what the keyboard is typing into: a prompt's
+-- text, an AI Agent message, the app in front, or search on Start.
 return function(K,T)
   local I={draft="",error=nil}
-  local function fieldDialog(monitor)
+  local max,min,floor=math.max,math.min,math.floor
+  local function fieldDialog()
     for _,s in ipairs(K.screens)do
       local d=s.dialogs and s.dialogs[1]
       if d and d.field then return d end
     end
   end
+  -- Agent chat typed here goes to the monitor's AI Agent. Returns true when
+  -- the key was used.
   function I.keyboard(ev,monitor)
+    if not(K.agent and not K.agent.busy)then return false end
     local e=ev[1]
-    local d=fieldDialog(monitor)
-    if d then
-      if e=="char"or e=="paste"then d.field.text=(d.field.text..ev[2]):sub(1,d.field.secret and 1024 or 12000)
-      elseif e=="key"and ev[2]==keys.backspace then d.field.text=d.field.text:sub(1,-2)
-      elseif e=="key"and ev[2]==keys.enter then K.answerDialog(d.screen,d,#d.buttons)
-      elseif e=="key"and ev[2]==keys.escape then K.answerDialog(d.screen,d,1)end
-      K.markAll();return
-    end
-    local agent=monitor.picture and monitor.picture.view=="agent"
-    if agent and K.agent and not K.agent.busy then
-      if e=="char"or e=="paste"then I.draft=(I.draft..ev[2]):sub(1,12000);I.error=nil
-      elseif e=="key"and ev[2]==keys.backspace then I.draft=I.draft:sub(1,-2)
-      elseif e=="key"and ev[2]==keys.enter then local ok,why=K.agent.start(I.draft,"terminal");if ok then I.draft=""else I.error=why end end
-      K.markAll()
-    end
+    if e=="char"or e=="paste"then I.draft=(I.draft..ev[2]):sub(1,12000);I.error=nil
+    elseif e=="key"and ev[2]==keys.backspace then I.draft=I.draft:sub(1,-2)
+    elseif e=="key"and(ev[2]==keys.enter or ev[2]==keys.numPadEnter)then
+      local ok,why=K.agent.start(I.draft,"terminal");if ok then I.draft=""else I.error=why end
+    else return false end
+    K.markAll();return true
+  end
+  local function nameOf(id)
+    for _,a in ipairs(K.APPS)do if a.id==id then return a.name end end
+    local builtin={home="Start",apps="Apps",music="Music",files="Files",reader="Reader",devices="Devices",settings="PC settings",notifications="Notifications",power="Power"}
+    return builtin[id]or id
   end
   function I.draw(s,monitor)
     local b,W,H=s.buf,s.w,s.h
     local function text(x,y,t,fg,bg)
-      if y<1 or y>H then return end
-      t=tostring(t or ""):sub(1,math.max(0,W-x+1));b.setCursorPos(x,y);b.setTextColor(fg or T.text);b.setBackgroundColor(bg or T.bg);b.write(t)
+      if y<1 or y>H or x>W then return end
+      t=tostring(t or ""):sub(1,max(0,W-x+1));b.setCursorPos(x,y);b.setTextColor(fg or T.text);b.setBackgroundColor(bg or T.bg);b.write(t)
     end
-    local function fill(y,h,bg)for yy=y,math.min(H,y+h-1)do text(1,yy,(" "):rep(W),bg,bg)end end
-    local function button(x,y,label,fn)
-      text(x,y," "..label.." ",T.text,T.raised)
-      s.hits[#s.hits+1]={x1=x,y1=y,x2=x+#label+1,y2=y,fn=fn}
+    local function fill(y,h,bg)for yy=y,min(H,y+h-1)do text(1,yy,(" "):rep(W),bg,bg)end end
+    local function hit(x,y,w,fn)s.hits[#s.hits+1]={x1=x,y1=y,x2=x+w-1,y2=y,fn=fn}end
+    local function button(x,y,label,fn,primary)
+      local w=#label+2
+      text(x,y," "..label.." ",T.text,primary and T.accent or T.raised);hit(x,y,w,fn)
+      return x+w+1
     end
-    fill(1,H,T.bg);fill(1,1,T.surface)
-    text(2,1,"ccOS  |  Monitor input",T.accent,T.surface)
-    button(2,H,"AI Agent",function()K.launch("agent",{},{screen=monitor})end)
-    button(13,H,"Settings",function()monitor.picture=monitor.picture or {};monitor.picture.view="settings";K.markAll()end)
-    button(W-12,H,"Full Sync",function()K.setFullSync(true)end)
-    local d=fieldDialog(monitor)
-    local agent=monitor.picture and monitor.picture.view=="agent"
-    local body,title,secret
+    local v=monitor.picture or {}
+    local function go(view)monitor.picture=monitor.picture or {};local p=monitor.picture;p.view,p.flyout,p.appPid,p.page=view,nil,nil,1;K.markAll()end
+    -- Top bar on the Start colour: where the keyboard is going.
+    fill(1,H,T.bg);fill(1,1,T.select)
+    text(2,1,"ccOS keyboard",T.text,T.select)
+    local clock=K.clockText(false)
+    text(W-#clock,1,clock,T.text,T.select)
+    local d=fieldDialog()
+    local app=K.pictureApp(monitor)
+    local agent=v.view=="agent"and not d
+    local title,body,secret,hint
     if d then title,body,secret=d.title,d.field.text,d.field.secret
-    elseif agent and not K.agent.busy then title,body="Message AI Agent",I.draft
-    else
-      text(2,4,"Big Picture is on "..monitor.name,T.text)
-      text(2,6,"Tap a tool or prompt on the monitor.",T.muted)
-      text(2,7,"Type here when it asks for text.",T.muted)
-      if agent and K.agent.busy then text(2,9,"AI Agent: "..K.agent.status,T.accent)end
-      if K.updates and K.updates.available then
-        button(2,H-3,"Update available",function()K.updates.prompt()end)
+      hint=secret and "Hidden. Enter saves, Esc cancels."or "Enter submits, Esc cancels."
+    elseif agent and K.agent and not K.agent.busy then title,body,hint="Message AI Agent",I.draft,"Enter sends your message to the monitor."end
+    if title then
+      text(2,3,title,T.text)
+      text(2,4,hint,T.muted)
+      local shown=secret and("*"):rep(#body)or body
+      local width=max(1,W-4);local room=max(1,H-9)
+      local chunks={}
+      for i=1,#shown,width do chunks[#chunks+1]=(shown:sub(i,i+width-1):gsub("\n"," "))end
+      if #chunks==0 or #chunks[#chunks]==width then chunks[#chunks+1]=""end
+      local first=max(1,#chunks-room+1)
+      for yy=6,5+room do text(2,yy,(" "):rep(W-2),T.text,T.surface)end
+      for i=first,#chunks do text(3,6+i-first,chunks[i],T.text,T.surface)end
+      local line=chunks[#chunks]
+      s.cursor={x=min(W-1,3+#line),y=min(5+room,6+#chunks-first),color=T.accent}
+      if I.error and not d then text(2,H-2,I.error:sub(1,W-2),T.warn)end
+      if d then
+        local okLabel=d.buttons[#d.buttons]or "OK"
+        button(W-#okLabel-2,H-1,okLabel,function()K.answerDialog(d.screen,d,#d.buttons)end,true)
+        button(W-#okLabel-13,H-1,"Cancel",function()K.answerDialog(d.screen,d,1)end)
+      else
+        button(W-7,H-1,"Send",function()I.keyboard({"key",keys.enter},monitor)end,true)
+        button(W-17,H-1,"Clear",function()I.draft="";I.error=nil;K.markAll()end)
       end
       return
     end
-    text(2,3,title,T.text)
-    text(2,5,secret and "Hidden input. Enter to save; Esc to cancel."or "Enter to submit. Esc cancels a prompt.",T.muted)
-    local shown=secret and("*"):rep(#body)or body
-    local width=math.max(1,W-4);local room=math.max(1,H-10)
-    local chunks={};if shown==""then chunks[1]=""end
-    for i=1,#shown,width do chunks[#chunks+1]=shown:sub(i,i+width-1):gsub("\n"," ")end
-    local first=math.max(1,#chunks-room+1)
-    fill(7,room,T.surface)
-    for i=first,#chunks do text(3,7+i-first,chunks[i],T.text,T.surface)end
-    local line=chunks[#chunks]or ""
-    s.cursor={x=math.min(W-1,3+#line),y=math.min(H-4,7+#chunks-first),color=T.accent}
-    if d then
-      button(2,H-2,"Cancel",function()K.answerDialog(d.screen,d,1)end)
-      button(W-11,H-2,d.buttons[#d.buttons]or "Submit",function()K.answerDialog(d.screen,d,#d.buttons)end)
-    else
-      button(2,H-2,"Clear",function()I.draft="";K.markAll()end)
-      button(W-8,H-2,"Send",function()I.keyboard({"key",keys.enter},monitor)end)
-    end
-    if I.error then text(2,H-3,I.error,T.warn)end
+    -- Nothing to type into: show what the monitor shows and how to type.
+    local where=app and nameOf(app.app and app.app.id or "")or nameOf(v.view or "home")
+    text(2,3,"Big Picture is on "..monitor.name,T.text)
+    text(2,4,"Showing: "..where,T.accent)
+    local lines
+    if app then lines={"Keys you press here go to "..where..".","F2 returns the monitor to Start."}
+    elseif v.view=="agent"and K.agent and K.agent.busy then lines={"AI Agent: "..tostring(K.agent.status),"F2 returns the monitor to Start."}
+    else lines={"Tap tiles on the monitor to open apps.","Type here to search apps on Start.","F1 opens AI Agent; F2 returns to Start."}end
+    for i,l in ipairs(lines)do text(2,5+i,l,T.muted)end
+    if v.search and v.search~=""then text(2,6+#lines+1,"Search: "..v.search,T.text)end
+    if K.updates and K.updates.available then button(2,H-3,"Update available",function()K.updates.prompt()end,true)end
+    -- The bottom bar mirrors the monitor's main places.
+    fill(H-1,2,T.surface)
+    local x=2
+    x=button(x,H-1,"Start",function()go("home")end,v.view=="home"and not app)
+    x=button(x,H-1,"Apps",function()go("apps")end,v.view=="apps")
+    x=button(x,H-1,"AI Agent",function()K.launch("agent",{},{screen=monitor})end,v.view=="agent")
+    if x+14<=W then button(x,H-1,"PC settings",function()go("settings")end,v.view=="settings")end
   end
   return I
 end
@@ -6510,53 +5654,18 @@ function J.decode(src)
 end
 return J
 ]=]},
-  {"ccos/lib/mirror.lua",[=[
--- Full Sync stretches terminal cells to the complete monitor area. Colours and
--- teletext artwork fill their scaled rectangles; text has one centred glyph.
-local M={}
-local floor,ceil=math.floor,math.ceil
-function M.source(x,y,sw,sh,dw,dh)
-  if x<1 or y<1 or x>dw or y>dh then return end
-  return floor((x-1)*sw/dw)+1,floor((y-1)*sh/dh)+1
-end
-function M.target(x,y,sw,sh,dw,dh)
-  local a,b=ceil((x-1)*dw/sw)+1,ceil(x*dw/sw)
-  local c,d=ceil((y-1)*dh/sh)+1,ceil(y*dh/sh)
-  return floor((a+b)/2),floor((c+d)/2)
-end
-function M.rows(buf,sw,sh,dw,dh)
-  local rows,xmap,xcenter={}, {},{}
-  for x=1,dw do
-    local sx=floor((x-1)*sw/dw)+1
-    xmap[x]=sx;xcenter[x]=M.target(sx,1,sw,sh,dw,dh)
-  end
-  local previous,st,sf,sb
-  for y=1,dh do
-    local sy=floor((y-1)*sh/dh)+1
-    if sy~=previous then st,sf,sb=buf.getLine(sy);previous=sy end
-    local _,cy=M.target(1,sy,sw,sh,dw,dh)
-    local t,f,b={},{},{}
-    for x=1,dw do
-      local sx=xmap[x];local code=st:byte(sx)
-      local art=code>=128 and code<=159
-      t[x]=(art or(x==xcenter[x]and y==cy))and string.char(code)or " "
-      f[x],b[x]=sf:sub(sx,sx),sb:sub(sx,sx)
-    end
-    rows[y]={table.concat(t),table.concat(f),table.concat(b)}
-  end
-  return rows
-end
-return M
-]=]},
   {"ccos/lib/picture.lua",[=[
--- Hallmark · genre: atmospheric · structure: compact tool workbench · palette: ccOS tokens
--- Pre-emit critique: Philosophy 5, Hierarchy 4, Execution 4, Specificity 5, Restraint 5, Variety 4
--- Touch-only presentation. Shares the kernel's audio, files and hardware;
--- routes prompt entry through the dedicated computer input console.
+-- Big Picture views in the Windows 8.1 idiom: a back circle and light page
+-- title, flat lists with colour chips, an AppBar for media, two-pane PC
+-- settings, toasts and an 8.1 Update title bar over full-screen apps.
+-- On a monitor, text entry is typed on the computer's keyboard console.
 return function(K, gfx, T)
   local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
   local P = {}
   local startScreen=assert(loadfile(K.root.."/lib/startscreen.lua"))()(K,gfx,T)
+  P.start=startScreen
+  local M=gfx.metro
+  local function hx(c)return gfx.HEX[c]or"f"end
   local function clip(text, w)
     text = tostring(text or "")
     return w > 0 and text:sub(1, w) or ""
@@ -6565,50 +5674,59 @@ return function(K, gfx, T)
     local n = path:lower()
     return n:match("%.wav$") or (n:match("%.dfpwm$") and not n:match("%.r%.dfpwm$"))
   end
+  local function rows(spec)local r={};for row in spec:gmatch("%S+")do r[#r+1]=row end;return r end
+  local CIRCLE=rows("....###.... ..##...##.. .#.......#. .#.......#. #.........# #.........# #.........# .#.......#. .#.......#. ..##...##.. ....###....")
+  local MEDIA={
+    prev=rows("#...# #..## #.### #..## #...#"),next=rows("#...# ##..# ###.# ##..# #...#"),
+    play=rows(".#... .##.. .###. .##.. .#..."),pause=rows("##.## ##.## ##.## ##.## ##.##"),stop=rows("##### ##### ##### ##### #####"),
+  }
+  local function circleButton(kind,bg)
+    return startScreen.remember("circle"..kind..hx(bg),function()
+      local cv=gfx.canvas(12,12,hx(bg))
+      M.stamp(cv,1,1,CIRCLE,hx(T.text));M.stamp(cv,4,4,MEDIA[kind],hx(T.text))
+      return gfx.cells(cv.rows(),hx(bg))
+    end)
+  end
+  local CHIP=string.char(149)
+  local BUILTIN={home=true,apps=true,music=true,files=true,reader=true,devices=true,settings=true,notifications=true,power=true}
+
   function P.draw(s)
-    local B, A = s.buf, K.audio
-    s.picture = s.picture or { view = "home", page = 1, path = "/", category="Favorites" }
+    local A = K.audio
+    s.picture = s.picture or { view = "home", page = 1, path = "/" }
     local v = s.picture
     local W, H = s.w, s.h
-    local compact = true
-    local top, bottom = 2, H - 1
-    local left, width = 2, W - 2
-    local function text(x, y, t, fg, bg)
-      if y < 1 or y > H then return end
-      t = tostring(t or "")
-      if x < 1 then t = t:sub(2 - x); x = 1 end
-      t = clip(t, W - x + 1)
-      B.setCursorPos(x, y); B.setTextColor(fg or T.text); B.setBackgroundColor(bg or T.bg); B.write(t)
-    end
-    local function fill(x, y, w, h, bg)
-      x, w = max(1, x), min(w, W - x + 1)
-      if w <= 0 then return end
-      for yy = max(1, y), min(H, y + h - 1) do text(x, yy, (" "):rep(w), bg, bg) end
-    end
-    local function hit(x, y, w, h, fn)
-      if w <= 0 or h <= 0 then return end
-      s.hits[#s.hits + 1] = { x1 = max(1, x), y1 = max(1, y), x2 = min(W, x + w - 1), y2 = min(H, y + h - 1), fn = fn }
-    end
+    local m=startScreen.metrics(W,H)
+    local Pn=startScreen.painter(s)
+    local function text(x, y, t, fg, bg) Pn.text(x,y,t,fg,bg or T.bg) end
+    local function fill(x, y, w, h, bg) x,w=max(1,x),min(w,W-max(1,x)+1);Pn.fill(x,y,w,h,bg) end
+    local function hit(x, y, w, h, fn) if w>0 and h>0 then Pn.hit(x,y,w,h,fn)end end
     local function center(x, y, w, label, fg, bg)
       label = clip(label, w)
       text(x + floor((w - #label) / 2), y, label, fg, bg)
     end
-    local function button(x, y, w, h, label, fn, active, disabled)
-      local bg = active and T.accent or T.raised
+    -- A flat Metro button: filled, label centred, accent when primary.
+    local function button(x, y, w, label, fn, primary, disabled, h)
+      h=h or 1
+      local bg = primary and T.accent or T.raised
       fill(x, y, w, h, bg)
-      center(x, y + floor((h - 1) / 2), w, label, disabled and T.muted or (active and T.bg or T.text), bg)
+      center(x, y + floor((h - 1) / 2), w, label, disabled and T.muted or T.text, bg)
       if not disabled then hit(x, y, w, h, fn) end
     end
     local function go(view)
       local found
       for _, a in ipairs(K.APPS) do if a.id == view then found = a end end
-      local builtin = ({home=true,music=true,files=true,reader=true,devices=true,settings=true,notifications=true,power=true})[view]
-      if found and not K.canTouchApp(found,s) and not builtin then
-        K.launch(view, {}, {screen=s}); v.message="Full Sync needed: "..found.name; K.markDirty(s); return
+      v.page, v.message, v.confirm, v.flyout = 1, nil, nil, nil
+      if view ~= "apps" then v.search = nil end
+      if found and not BUILTIN[view] then
+        -- Apps open full screen (or come back if already running).
+        local p, why = K.launch(view, {}, { screen = s })
+        if not p then v.message = why end
+      else
+        v.view, v.appPid = view, nil
       end
-      v.view, v.page, v.message, v.appPid = view, 1, nil, nil
       K.markAll()
     end
+    P.go=go
     local function run(fn, title)
       K.spawn(function()
         local ok, result = pcall(fn)
@@ -6616,90 +5734,149 @@ return function(K, gfx, T)
         K.markDirty(s)
       end, { title = title or "ccOS" })
     end
-    local function pager(count, rows, y)
-      local pages = max(1, ceil(count / max(1, rows)))
-      v.page = max(1, min(v.page, pages))
-      local bw = min(10, floor((width - 9) / 2))
-      button(left, y, bw, compact and 1 or 2, "< Prev", function() v.page = v.page - 1 end, false, v.page == 1)
-      button(W - bw, y, bw, compact and 1 or 2, "Next >", function() v.page = v.page + 1 end, false, v.page == pages)
-      center(left + bw, y, width - bw * 2, v.page .. " / " .. pages, T.muted)
-      return (v.page - 1) * rows
-    end
-    local function list(items, y, endY, pick)
-      local rowH = compact and 1 or 3
-      local cols = W >= 72 and 2 or 1
-      local cw = floor((width - (cols - 1) * 2) / cols)
-      local pageY = endY - (compact and 0 or 1)
-      local visible = max(1, floor((pageY - y) / rowH)) * cols
-      local off = pager(#items, visible, pageY)
-      for i = 1, visible do
-        local item = items[off + i]
-        if not item then break end
-        local yy = y + floor((i - 1) / cols) * rowH
-        local xx = left + ((i - 1) % cols) * (cw + 2)
-        fill(xx, yy, cw, rowH - (compact and 0 or 1), T.surface)
-        text(xx + 1, yy, clip(item.label, cw - 3), item.color or T.text, T.surface)
-        if item.detail and rowH == 3 then text(xx + 1, yy + 1, clip(item.detail, cw - 3), T.muted, T.surface) end
-        if item.fn or pick then hit(xx, yy, cw, rowH - (compact and 0 or 1), function() (item.fn or pick)(item) end) end
-      end
-      if #items == 0 then center(left, y, width, "Nothing here yet", T.muted) end
-    end
-    local function controls(items, y, h)
-      local n, gap = #items, 1
-      local available = width - gap * (n - 1)
-      for i, it in ipairs(items) do
-        local x = left + floor((i - 1) * available / n) + (i - 1) * gap
-        local w = floor(i * available / n) - floor((i - 1) * available / n)
-        button(x, y, w, h or 3, it[1], it[2], it[3], it[4])
-      end
-    end
+
     fill(1, 1, W, H, T.bg)
     if W < 32 or H < 10 then
       center(1, 1, W, "ccOS", T.accent)
-      if H >= 3 then button(1, 3, W, min(3, H - 2), "Auto scale", function() K.api.setScreen(s.name, nil, "auto") end, true) end
+      if H >= 3 then button(1, 3, W, "Auto scale", function() K.api.setScreen(s.name, nil, "auto") end, true, false, min(3, H - 2)) end
       return
     end
     if v.view=="home"then startScreen.draw(s,go);return end
-    -- One-row chrome reserves almost all monitor cells for useful content.
-    fill(1, 1, W, 1, T.surface)
-    button(1, 1, 8, 1, v.view == "home" and "ccOS" or "< Tools", function() go("home") end, v.view == "home")
-    local titles = { home=v.category or "Favorites", music="Music", files="Files", reader="Reader", devices="Devices",settings="Settings",notifications="Notifications",power="Power" }
-    local nativeApp, appDef
+    if v.view=="apps"then startScreen.drawApps(s,go);return end
+
+    local titles = { music="Music", files="Files", reader=v.readName or "Reader", devices="Devices",settings="PC settings",notifications="Notifications",power="Power" }
+    local appDef
     for _,a in ipairs(K.APPS) do if a.id == v.view then appDef=a end end
-    if appDef and not titles[v.view] then nativeApp=appDef.touch end
-    local title=titles[v.view] or (appDef and appDef.name) or "ccOS"
-    local ct=K.clockText(K.cfg.seconds)
-    text(10,1,clip(title,max(0,W-#ct-18)),T.text,T.surface)
-    text(W-#ct,1,ct,T.muted,T.surface)
     local info = A.info()
-    if nativeApp then
-      local win
-      for _, w in ipairs(K.wins) do if w.screen == s and w.app and w.app.id == v.view and not w.proc.dead then win = w end end
-      if not win and not v.appPid then
-        local p = K.launch(v.view, {}, { screen = s })
-        win = p and p.win
-      elseif not win then
-        v.view,v.appPid="home",nil;K.markDirty(s)
+
+    -- Full-screen app: the 8.1 Update title bar, then the app itself.
+    if appDef and not titles[v.view] then
+      local win = K.pictureApp(s)
+      if not win then
+        for _, w in ipairs(K.wins) do if w.screen == s and w.app and w.app.id == v.view and not w.proc.dead then win = w end end
+        if win then v.appPid = win.id
+        else
+          local p, why = K.launch(v.view, {}, { screen = s })
+          win = p and p.win
+          if not win then v.view, v.appPid, v.message = "home", nil, why; K.markDirty(s); return end
+        end
       end
-      if win then v.appPid=win.id end
+      fill(1, 1, W, 1, T.surface)
+      text(1,1," \27 ",T.text,T.surface);hit(1,1,3,1,function()go("home")end)
+      local c=startScreen.color(appDef)
+      if c==T.surface or c==T.bg then c=T.raised end
+      Pn.cells(5,1,{{" "..CHIP,"0"..hx(c),hx(c)..hx(T.surface)}})
+      local ct=K.clockText(false)
+      local name=win and win.title or appDef.name
+      text(8,1,clip(name,max(0,W-#ct-18)),T.text,T.surface)
+      text(W-#ct-8,1,ct,T.muted,T.surface)
+      text(W-5,1," - ",T.text,T.surface);hit(W-5,1,3,1,function()go("home")end)
       if win then
-        button(W-#ct-5,1,3,1,"x",function()K.closeWindow(win);go("home")end)
+        text(W-2,1," \215 ",T.text,T.surface);hit(W-2,1,3,1,function()K.closeWindow(win);go("home")end)
         for row = 1, win.h do
           local t, f, b = win.buf.getLine(row)
-          B.setCursorPos(win.x, win.y + row); B.blit(t, f, b)
+          s.buf.setCursorPos(win.x, win.y + row); s.buf.blit(t, f, b)
         end
         s.hits[#s.hits + 1] = { x1 = win.x, y1 = win.y + 1, x2 = win.x + win.w - 1, y2 = win.y + win.h, content = win }
       end
-    elseif v.view == "music" then
-      local cy = top
-      if not compact then
-        text(left, cy, clip(info.discTitle or info.title or "Choose a track", width), T.accent)
-        cy = cy + 2
+      if v.message then startScreen.toast(Pn,s,m,v)end
+      return
+    end
+
+    -- Page header: back circle, light title, optional subtitle and actions.
+    local actionX=W-max(1,floor(m.L/2))
+    local headY,top,left
+    local function header(title,subtitle)
+      if m.big then
+        local bx=max(1,m.L-6)
+        left=max(m.L,bx+6)
+        Pn.cells(bx,m.headTop,startScreen.remember("back"..hx(T.bg),function()return M.markCells(M.MARKS.back,hx(T.text),hx(T.bg),0,0)end))
+        hit(bx,m.headTop,5,3,function()go("home")end)
+        local room=actionX-left-24
+        if M.textWidth(title)/2<=room then
+          Pn.cells(left,m.headTop,startScreen.headingCells(title,hx(T.text),hx(T.bg)))
+          if subtitle then text(left+floor(M.textWidth(title)/2)+3,m.headTop+2,clip(subtitle,actionX-left-floor(M.textWidth(title)/2)-26),T.muted)end
+        else
+          text(left,m.headTop+1,clip(title,actionX-left-24),T.text)
+          if subtitle then text(left,m.headTop+2,clip(subtitle,actionX-left-24),T.muted)end
+        end
+        headY,top=m.headTop+1,m.headTop+4
+      else
+        fill(1,1,W,1,T.surface)
+        text(1,1," \27 ",T.text,T.surface);hit(1,1,3,1,function()go("home")end)
+        text(5,1,clip(title,W-28),T.text,T.surface)
+        if subtitle then text(6+#title,1,clip(subtitle,W-34-#title),T.muted,T.surface)end
+        headY,top,left=1,3,2
       end
-      controls({ { "Previous", A.prev }, { info.state == "playing" and "Pause" or "Play", A.toggle, true },
-        { "Next", A.next }, { "Stop", function() if info.disc then A.stopDisc() else A.stop() end end } }, cy, compact and 1 or 3)
-      cy = cy + (compact and 1 or 4)
-      local tracks, items = {}, {}
+    end
+    -- Header commands, laid out from the right edge.
+    local function action(label,fn,disabled)
+      local w=#label+4;actionX=actionX-w
+      button(actionX,headY,w,label,fn,false,disabled);actionX=actionX-2
+    end
+    local right=W-max(1,floor(m.L/2))
+
+    -- A paged list: colour chip, name, and a second muted line when room.
+    local function list(items, y, endY, opts)
+      opts=opts or {}
+      local width=right-left+1
+      local cols=width>=110 and 3 or(width>=64 and 2 or 1)
+      local colW=floor((width-(cols-1)*3)/cols)
+      local detail=false;for _,it in ipairs(items)do if it.detail then detail=true end end
+      local rowH=(detail and m.big and endY-y>=9)and 3 or 1
+      local perCol=max(1,floor((endY-y+1)/rowH))
+      if #items>perCol*cols then perCol=max(1,floor((endY-y)/rowH))end
+      local per=perCol*cols
+      local pages=max(1,ceil(#items/per))
+      v.page=max(1,min(v.page or 1,pages))
+      local off=(v.page-1)*per
+      for i=1,per do
+        local item=items[off+i];if not item then break end
+        local col=floor((i-1)/perCol)
+        local r=(i-1)%perCol
+        local xx,yy=left+col*(colW+3),y+r*rowH
+        local tx=xx
+        if item.color and rowH>1 then
+          -- Two-line rows get an 18px square, like 8.1 list icons.
+          Pn.fill(xx,yy,3,2,item.color);tx=xx+4
+        elseif item.color then
+          Pn.cells(xx,yy,{{string.char(131),hx(T.bg),hx(item.color)}});tx=xx+2
+        end
+        text(tx,yy,clip(item.label,colW-(tx-xx)),item.fg or T.text)
+        if rowH>1 and item.detail then text(tx,yy+1,clip(item.detail,colW-(tx-xx)),T.muted)end
+        if item.fn then hit(xx,yy,colW,max(1,rowH-1),item.fn)end
+      end
+      if #items==0 then text(left,y,opts.empty or "Nothing here yet",T.muted)end
+      startScreen.scrollbar(Pn,m,left,v.page,pages,function(p)v.page=max(1,min(pages,p))end,T.bg,right,endY)
+    end
+
+    local bottom=H
+    if v.view == "music" then
+      local title=info.discTitle or info.title
+      header("Music",title and(info.state=="playing"and "Now playing"or "Paused")or nil)
+      -- AppBar: now-playing text on the left, transport commands on the right.
+      local rings=m.big and H>=30
+      local barH=rings and 6 or 1
+      local barY=H-barH+1
+      fill(1,barY,W,barH,T.surface)
+      local controls={{"prev","Previous",A.prev},{info.state=="playing"and "pause"or "play",info.state=="playing"and "Pause"or "Play",A.toggle},
+        {"next","Next",A.next},{"stop","Stop",function()if info.disc then A.stopDisc()else A.stop()end end}}
+      if rings then
+        local x=right-#controls*11+3
+        for i,c in ipairs(controls)do
+          local bx=x+(i-1)*11
+          Pn.cells(bx,barY+1,circleButton(c[1],T.surface))
+          center(bx-2,barY+5,10,c[2],T.text,T.surface)
+          hit(bx-2,barY+1,10,5,c[3])
+        end
+        text(left,barY+1,clip(title or "Nothing playing",x-left-3),T.text,T.surface)
+        text(left,barY+2,clip(title and(info.state=="playing"and "Playing"or "Paused")or "Choose a song below",x-left-3),T.muted,T.surface)
+      else
+        local x=right+1
+        for i=#controls,1,-1 do local c=controls[i];x=x-#c[2]-3;button(x,barY,#c[2]+2,c[2],c[3],i==2,false,1)end
+        if x-left-1>=6 then text(left,barY,clip(title or "Music",x-left-1),T.text,T.surface)end
+      end
+      local tracks,items={},{}
       local function scan(dir, depth)
         if depth > 3 then return end
         local ok, names = pcall(fs.list, dir)
@@ -6716,17 +5893,14 @@ return function(K, gfx, T)
       if not v.library then scan("", 0); v.library = tracks end
       tracks = v.library
       for i, item in ipairs(tracks) do
-        items[#items + 1] = { label = item.title, detail = item.path, fn = function() A.play(tracks, i) end }
+        local current=title==item.title
+        items[#items + 1] = { label = item.title, detail = item.path, color=current and T.accent or T.orange, fn = function() A.play(tracks, i) end }
       end
-      if bottom - cy >= 1 then list(items, cy, bottom, nil)
-      else
-        button(left, cy, width, 2, "Play library", function() if #tracks > 0 then A.play(tracks, 1) end end, false, #tracks == 0)
-      end
+      list(items,top,barY-(rings and 2 or 1),{empty="No songs found. Put .dfpwm or .wav files on this computer."})
     elseif v.view == "files" then
-      local upW = min(10, floor(width / 3))
-      button(left, top, upW, compact and 1 or 2, "< Up", function() v.path = "/" .. fs.getDir(v.path); v.page = 1 end, false, v.path == "/")
-      button(W - 11, top, 11, compact and 1 or 2, "Refresh", function() v.message = nil end)
-      text(left + upW + 1, top + (compact and 0 or 1), clip(v.path, width - upW - 13), T.accent)
+      header("Files",v.path)
+      action("Refresh",function()v.message=nil end)
+      action("Up",function()v.path="/"..fs.getDir(v.path);v.page=1 end,v.path=="/")
       local ok, names = pcall(fs.list, v.path)
       local items = {}
       if ok then
@@ -6739,108 +5913,385 @@ return function(K, gfx, T)
           local path = fs.combine(v.path, n)
           local dir = fs.isDir(path)
           if "/"..path ~= "/ccos/private" then
-          items[#items + 1] = { label = (dir and "+ " or "  ") .. n .. (dir and "/" or ""), detail = dir and "Tap to open folder" or "Tap to read or play", fn = function()
-            if dir then v.path = "/" .. path; v.page = 1
-            elseif audioFile(path) then A.play("/" .. path); go("music")
-            else
-              local handle = fs.open(path, "r")
-              if handle then
-                -- Bounded reader: never execute programs or load an entire disk.
-                local raw = handle.read(32768) or ""; handle.close()
-                if raw:find("[%z\1-\8\11\12\14-\31]") then v.message = "This file cannot be previewed"
-                else v.readText, v.readName = raw, n; go("reader") end
-              else v.message = "File is unavailable" end
-            end
-          end }
+            local size=not dir and(pcall(fs.getSize,path)and fs.getSize(path))
+            items[#items + 1] = { label = n, color=dir and T.warn or(audioFile(path)and T.orange or T.info),
+              detail = dir and "File folder" or ((size and(size<1024 and size.." bytes"or floor(size/102.4)/10 .." KB")or "File")..(audioFile(path)and " - tap to play"or "")),
+              fn = function()
+                if dir then v.path = "/" .. path; v.page = 1
+                elseif audioFile(path) then A.play("/" .. path); go("music")
+                else
+                  local handle = fs.open(path, "r")
+                  if handle then
+                    -- Bounded reader: never execute programs or load an entire disk.
+                    local raw = handle.read(32768) or ""; handle.close()
+                    if raw:find("[%z\1-\8\11\12\14-\31]") then v.message = "This file cannot be previewed"
+                    else v.readText, v.readName = raw, n; go("reader") end
+                  else v.message = "File is unavailable" end
+                end
+              end }
           end
         end
       end
-      if v.message then text(left + upW + 1, top + 1, clip(v.message, width - upW - 13), T.warn) end
-      list(items, top + (compact and 1 or 3), bottom)
+      list(items, top, bottom, {empty="This folder is empty"})
     elseif v.view == "reader" then
-      button(left, top, 12, compact and 1 or 2, "< Files", function() go("files") end)
-      button(W - 12, top, 12, compact and 1 or 2, "Print file", function()
+      header(v.readName or "Reader","Text preview")
+      action("Print",function()
         run(function() local ok, result = K.api.printText(v.readName, v.readText); return ok and "Printed" or result end, "Print file")
       end)
+      action("Files",function()go("files")end)
+      local width=right-left+1
       local lines = {}
       for found in ((v.readText or "") .. "\n"):gmatch("([^\n]*)\n") do
         local line = found:gsub("\t", "    ")
         if #line == 0 then lines[#lines + 1] = "" end
         while #line > 0 do lines[#lines + 1] = line:sub(1, width); line = line:sub(width + 1) end
       end
-      local pageY = bottom - (compact and 0 or 1)
-      local readY = top + (compact and 1 or 3)
-      local n = max(1, pageY - readY)
-      local off = pager(#lines, n, pageY)
-      for i = 1, n do text(left, readY + i - 1, lines[off + i] or "", T.text) end
-      if v.message then text(left + 13, top, clip(v.message, width - 26), T.accent) end
+      local n = max(1, bottom - top)
+      local pages=max(1,ceil(#lines/n))
+      v.page=max(1,min(v.page or 1,pages))
+      local off=(v.page-1)*n
+      for i = 1, n do text(left, top + i - 1, lines[off + i] or "", T.text) end
+      startScreen.scrollbar(Pn,m,left,v.page,pages,function(p)v.page=max(1,min(pages,p))end,T.bg,right,bottom)
     elseif v.view == "devices" then
+      header("Devices",info.speakers.." speakers")
       local items = {}
       for _, d in ipairs(K.hw.drives or {}) do
-        items[#items + 1] = { label = d.name .. ": " .. (d.label or d.audio or (d.present and "Disk" or "Empty")),
+        items[#items + 1] = { label = d.name .. ": " .. (d.label or d.audio or (d.present and "Disk" or "Empty")), color=T.info,
           detail = d.audio and "Tap to play disc" or (d.mount and "Tap to browse disk" or "No data disk"), fn = function()
             if d.audio then A.playDisc(d.name); go("music")
             elseif d.mount then v.path = "/" .. d.mount; go("files") end
           end }
       end
-      for _, p in ipairs(K.hw.printers or {}) do items[#items + 1] = { label = p.name, detail = (p.paper or 0) .. " paper / " .. (p.ink or 0) .. " ink" } end
-      items[#items + 1] = { label = "Test left speaker", detail = info.speakers .. " speakers connected", fn = function() A.note("bell", 12, -1, 1.5) end }
-      items[#items + 1] = { label = "Test right speaker", fn = function() A.note("bell", 12, 1, 1.5) end }
+      for _, p in ipairs(K.hw.printers or {}) do items[#items + 1] = { label = p.name, color=T.green, detail = (p.paper or 0) .. " paper / " .. (p.ink or 0) .. " ink" } end
+      items[#items + 1] = { label = "Test left speaker", color=T.orange, detail = info.speakers .. " speakers connected", fn = function() A.note("bell", 12, -1, 1.5) end }
+      items[#items + 1] = { label = "Test right speaker", color=T.orange, detail="Plays a bell on the right channel", fn = function() A.note("bell", 12, 1, 1.5) end }
       list(items, top, bottom)
     elseif v.view == "settings" then
-      local function toggle(key) K.api.config(key, not K.cfg[key]) end
-      local items = {
-        {label="Full Sync with desktop",fn=function()K.setFullSync(true)end},
-        {label="Auto update checks: "..(K.cfg.autoUpdates and "On"or "Off"),fn=function()toggle("autoUpdates")end},
-        {label="Check for updates",fn=function()K.updates.check(true)end},
-        {label=K.updates and K.updates.status or "Updates",fn=function()if K.updates.available then K.updates.prompt()end end},
-        { label = "Theme: " .. K.cfg.theme, detail = "Tap for next theme", fn = function()
-          local i = 1; for j, id in ipairs(K.THEME_ORDER) do if id == K.cfg.theme then i = j end end
-          K.api.config("theme", K.THEME_ORDER[i % #K.THEME_ORDER + 1])
-        end },
-        { label = "Volume down", detail = floor(K.cfg.musicVolume * 100 + 0.5) .. "%", fn = function() A.setVolume(K.cfg.musicVolume - 0.1) end },
-        { label = "Volume up", detail = floor(K.cfg.musicVolume * 100 + 0.5) .. "%", fn = function() A.setVolume(K.cfg.musicVolume + 0.1) end },
-        { label = "System sounds: " .. (K.cfg.sounds and "On" or "Off"), fn = function() toggle("sounds") end },
-        { label = "Time zone: " .. K.cfg.timezone, fn = function()
-          local index=1;for i,z in ipairs(K.clock.zones)do if z==K.cfg.timezone then index=i end end
-          K.api.config("timezone",K.clock.zones[index%#K.clock.zones+1])
-        end },
-        { label = "UTC -15m ("..K.cfg.utcOffset.."m)", detail=tostring(K.cfg.utcOffset).." minutes",fn=function()K.api.config("timezone","fixed");K.api.config("utcOffset",math.max(-720,K.cfg.utcOffset-15))end },
-        { label = "UTC +15m ("..K.cfg.utcOffset.."m)", detail=tostring(K.cfg.utcOffset).." minutes",fn=function()K.api.config("timezone","fixed");K.api.config("utcOffset",math.min(840,K.cfg.utcOffset+15))end },
-        { label = "Pad hour with zero: "..(K.cfg.leadingZero and "On"or "Off"),fn=function()toggle("leadingZero")end },
-        { label = "24-hour clock: " .. (K.cfg.clock24 and "On" or "Off"), fn = function() toggle("clock24") end },
-        { label = "Swap stereo speakers: " .. (K.cfg.swapSpeakers and "On" or "Off"), fn = function() toggle("swapSpeakers") end },
-        { label = "Refresh music library", fn = function() v.library = nil; go("music") end },
-        { label = "AI Agent",fn=function()go("agent")end },
-        { label = "Auto display scale", detail = "Fit touch controls to this monitor", fn = function() K.api.setScreen(s.name, nil, "auto") end },
-      }
-      list(items, top, bottom)
+      P.settings(s,v,m,Pn,{text=text,fill=fill,hit=hit,button=button,go=go,center=center})
     elseif v.view == "notifications" then
+      header("Notifications",K.unread>0 and(K.unread.." new")or nil)
       local items = {}
-      for _, n in ipairs(K.notifs) do items[#items + 1] = { label = n.title, detail = n.text } end
+      for _, n in ipairs(K.notifs) do items[#items + 1] = { label = n.title, detail = n.text, color=n.color or T.accent } end
       if K.unread > 0 then K.unread = 0; K.markAll() end
-      list(items, top, bottom)
+      list(items, top, bottom, {empty="You're all caught up"})
     elseif v.view == "power" then
+      header("Power")
+      local items={{"Restart","reboot",T.accent2},{"Shut down","shutdown",T.danger},{"Exit to CraftOS","exit",T.raised,"Exit"}}
+      local w=min(24,floor((right-left-#items+1)/#items));local h=m.big and min(8,bottom-top-1)or 3
+      for i,it in ipairs(items)do
+        local x=left+(i-1)*(w+1)
+        local tile=startScreen.remember("pw"..it[2]..w..h..hx(it[3]),function()
+          local cv=M.tileCanvas(w,h,hx(it[3]),hx(T.bg))
+          if h>=5 then M.placeGlyph(cv,M.MARKS.power,w,h,"0",true)end
+          return gfx.cells(cv.rows(),hx(it[3]))
+        end)
+        Pn.cells(x,top,tile)
+        text(x+1,top+h-2,clip((#it[1]>w-2 and it[4])or it[1],w-2),T.text,it[3])
+        hit(x,top,w,h,function()v.confirm=it[2]end)
+      end
       if v.confirm then
-        center(left, top, width, v.confirm == "reboot" and "Restart the computer?" or "Shut down the computer?", T.warn)
-        controls({ { "Cancel", function() v.confirm = nil end }, { "Confirm", function() K.power = v.confirm; K.running = false end, true } }, top + (compact and 1 or 2), compact and 1 or 3)
-      else
-        controls({ { "Restart", function() v.confirm = "reboot" end }, { "Shut down", function() v.confirm = "shutdown" end } }, top + (compact and 0 or 1), compact and 1 or 3)
+        local q={reboot={"Restart this computer?","Restart"},shutdown={"Shut down this computer?","Shut down"},exit={"Exit to CraftOS?","Exit"}}
+        local c=q[v.confirm]or q.shutdown
+        P.band(s,c[1],v.confirm=="exit"and "Open apps close and the CraftOS shell opens. Run /ccos/kernel.lua to come back."or "Open apps close and unsaved work is lost.",
+          {{"Cancel",function()v.confirm=nil end},{c[2],function()K.power=v.confirm;K.running=false end}},Pn)
+      end
+    else
+      go("home")
+    end
+    if v.message then startScreen.toast(Pn,s,m,v)end
+  end
+
+  -- F2 and the console's Start button: back to Start from anywhere.
+  function P.home(s)
+    s.picture=s.picture or {}
+    local v=s.picture
+    v.view,v.flyout,v.appPid,v.page,v.search,v.confirm,v.message="home",nil,nil,1,nil,nil,nil
+    K.markAll()
+  end
+
+  -- Keys while Start or a built-in page is in front (apps get their own).
+  -- Typing on Start searches apps, like the 8.1 Start screen.
+  function P.keyboard(s,ev)
+    s.picture=s.picture or {view="home",page=1,path="/"}
+    local v=s.picture
+    local e,k=ev[1],ev[2]
+    local function pageBy(d)
+      if v.view=="home"then v.startPage=(v.startPage or 1)+d
+      elseif v.view=="apps"then v.appsPage=(v.appsPage or 1)+d
+      else v.page=max(1,(v.page or 1)+d)end
+    end
+    if e=="char"or e=="paste"then
+      if v.view=="home"or v.view=="apps"then
+        local add=tostring(k):gsub("[%c]","")
+        if v.view=="home"and add:match("^%s*$")then return end
+        v.search=((v.search or "")..add):sub(1,30);v.view="apps";v.appsPage=1;v.flyout=nil
+        K.markAll()
+      end
+      return
+    end
+    if e~="key"then return end
+    if k==keys.backspace then
+      if v.search then v.search=v.search:sub(1,-2);if v.search==""then v.search=nil end;v.appsPage=1
+      elseif v.view=="files"and v.path and v.path~="/"then v.path="/"..fs.getDir(v.path);v.page=1
+      elseif v.view=="reader"then v.view,v.page="files",1
+      elseif v.view~="home"then P.home(s);return end
+    elseif k==keys.escape then
+      if v.flyout then v.flyout=nil
+      elseif v.confirm then v.confirm=nil
+      elseif v.search then v.search=nil;v.appsPage=1
+      elseif v.view~="home"then P.home(s);return end
+    elseif(k==keys.enter or k==keys.numPadEnter)and v.view=="apps"and v.search then
+      local first=startScreen.search(v.search)[1]
+      if first then v.search=nil;if P.go then P.go(first.id)end end
+    elseif k==keys.left or k==keys.pageUp or k==keys.up then pageBy(-1)
+    elseif k==keys.right or k==keys.pageDown or k==keys.down then pageBy(1)
+    elseif k==keys.home then P.home(s);return
+    else return end
+    K.markAll()
+  end
+
+  -- 8.1 toasts: the newest notification in a dark box at the top right,
+  -- with a colour strip for its app. Tap to act on it; x dismisses.
+  function P.toasts(s)
+    local t=K.toasts[1]
+    if not t or s.w<40 then return end
+    local n=t.n
+    local Pn=startScreen.painter(s)
+    local W=s.w
+    local w=min(W-4,max(30,min(44,floor(W*0.3))))
+    local x=W-w-1
+    local y=(s.picture and s.picture.view~="home"and s.picture.view~="apps")and 2 or 1
+    local lines={}
+    for word in tostring(n.text or ""):gmatch("%S+")do
+      if #lines==0 or #lines[#lines]+#word+1>w-5 then lines[#lines+1]=word else lines[#lines]=lines[#lines].." "..word end
+    end
+    while #lines>2 do table.remove(lines)end
+    local h=3+#lines
+    Pn.fill(x,y,w,h,T.surface)
+    Pn.fill(x,y,2,h,n.color or T.accent)
+    Pn.text(x+3,y+1,clip(n.title,w-7),T.text,T.surface)
+    for i,l in ipairs(lines)do Pn.text(x+3,y+1+i,clip(l,w-5),T.muted,T.surface)end
+    Pn.text(x+w-2,y+1,"\215",T.muted,T.surface)
+    local toast=t
+    local function dismiss()for i,o in ipairs(K.toasts)do if o==toast then table.remove(K.toasts,i);break end end end
+    Pn.hit(x,y,w-3,h,function()dismiss();if n.action then n.action()end end)
+    Pn.hit(x+w-3,y,3,h,dismiss)
+  end
+
+  -- An 8.1 message band: full width, centred column, buttons on the right.
+  function P.band(s,title,body,buttons,Pn,opts)
+    Pn=Pn or startScreen.painter(s)
+    local W,H=s.w,s.h
+    local cw=min(W-4,max(40,floor(W*0.55)))
+    local x=floor((W-cw)/2)+1
+    local lines={}
+    for word in tostring(body or ""):gmatch("%S+")do
+      if #lines==0 or #lines[#lines]+#word+1>cw then lines[#lines+1]=word else lines[#lines]=lines[#lines].." "..word end
+    end
+    opts=opts or {}
+    local big=H>=24 and M.textWidth(title)/2<=cw
+    local titleH=big and 3 or 1
+    local h=3+titleH+#lines+(#lines>0 and 1 or 0)+(opts.field and 2 or 0)+1
+    local y=max(1,floor((H-h)/2)+1)
+    Pn.hit(1,1,W,H,function()end)
+    Pn.fill(1,y,W,h,T.surface)
+    if big then Pn.cells(x,y+1,startScreen.headingCells(title,hx(T.text),hx(T.surface)))
+    else Pn.text(x,y+1,title:sub(1,cw),T.text,T.surface)end
+    local yy=y+1+titleH+1
+    for i,l in ipairs(lines)do Pn.text(x,yy+i-1,l,T.text,T.surface)end
+    yy=yy+#lines+(#lines>0 and 1 or 0)
+    if opts.field then
+      local shown=opts.field.secret and ("*"):rep(#opts.field.text)or opts.field.text
+      if #shown>cw-2 then shown=shown:sub(-(cw-2))end
+      Pn.fill(x,yy,cw,1,T.bg)
+      Pn.text(x+1,yy,shown~=""and shown or "Type on the computer",shown~=""and T.text or T.muted,T.bg)
+      yy=yy+2
+    end
+    local bx=x+cw
+    for i=#buttons,1,-1 do
+      local b=buttons[i];local w=max(10,#b[1]+4);bx=bx-w
+      local primary=i==(opts.primary or #buttons)
+      Pn.fill(bx,yy,w,1,primary and T.accent or T.raised)
+      Pn.text(bx+floor((w-#b[1])/2),yy,b[1],T.text,primary and T.accent or T.raised)
+      Pn.hit(bx,yy,w,1,b[2]);bx=bx-2
+    end
+  end
+
+  ----------------------------------------------------------------------
+  -- PC settings: category pane on the Start colour, controls on the right.
+  ----------------------------------------------------------------------
+  local function fmtOffset(n)local sign=n<0 and "-"or "+";n=math.abs(n);return ("UTC%s%d:%02d"):format(sign,floor(n/60),n%60)end
+  local function cycle(list,current,key)
+    local index=1;for i,x in ipairs(list)do if (key and x[key] or x)==current then index=i end end
+    local nxt=list[index%#list+1];return key and nxt[key]or nxt
+  end
+  local ROLE_NAMES={picture="Big Picture",panel="Info panel",off="Off"}
+  local ROLE_NEXT={picture="panel",panel="off",off="picture"}
+  local IDLE={0,60,300,600,1800}
+  local function idleName(n)return n==0 and "Never"or(n<60 and n.." seconds"or floor(n/60)..(n<120 and " minute"or " minutes"))end
+  local function prompt(title,body,default,apply)
+    K.spawn(function()local text=K.api.prompt(title,body,default);if text then apply(text)end;K.markAll()end,{title=title})
+  end
+  function P.settingsPages()
+    local cfg=K.cfg;local A=K.audio
+    local function toggle(label,key)return{kind="toggle",label=label,on=cfg[key]==true,fn=function()K.api.config(key,not cfg[key])end}end
+    local function nameIn(list,id)for _,c in ipairs(list or {})do if c.id==id then return c.name end end;return id end
+    local display={}
+    for _,sc in ipairs(K.screens)do
+      if sc.kind=="monitor"then
+        local cur=type(sc.scaleCfg)=="number"and sc.scaleCfg or(sc.target.getTextScale and sc.target.getTextScale()or 1)
+        display[#display+1]={kind="choice",label=sc.name.." shows",value=ROLE_NAMES[sc.role]or sc.role,fn=function()K.api.setScreen(sc.name,ROLE_NEXT[sc.role]or "picture")end}
+        if sc.role~="off"then
+          display[#display+1]={kind="stepper",label=sc.name.." text size",value=(sc.scaleCfg=="auto"and "Auto "or "")..cur,
+            down=function()K.api.setScreen(sc.name,nil,max(0.5,cur-0.5))end,up=function()K.api.setScreen(sc.name,nil,min(5,cur+0.5))end}
+          if sc.scaleCfg~="auto"then display[#display+1]={kind="button",label=sc.name.." automatic size",value="Auto",fn=function()K.api.setScreen(sc.name,nil,"auto")end}end
+        end
       end
     end
-    -- Playback is shared with the computer and remains accessible everywhere.
-    local fy = H
-    fill(1, fy, W, 1, T.surface)
-    local name = info.discTitle or info.title or "Music library"
-    local bw = W >= 48 and 9 or 5
-    local powerX = W - 7
-    local nextX, playX = powerX - bw - 1, powerX - 2 * bw - 2
-    local labelW = playX - 3
-    text(2, fy, clip(v.message or name, labelW), T.accent, T.surface)
-    hit(1, fy, labelW + 2, 1, function() go("music") end)
-    button(playX, fy, bw, 1, info.state == "playing" and "Pause" or "Play", A.toggle, true)
-    button(nextX, fy, bw, 1, "Next", A.next)
-    button(powerX, fy, 8, 1, "Power", function() v.confirm = nil; go("power") end)
+    if #display==0 then display[1]={kind="info",label="Monitors",value="None connected"}end
+    display[#display+1]={kind="info",label="Computer",value=(K.screens[1]and K.screens[1].role=="console")and "Keyboard for Big Picture"or "Big Picture"}
+    display[#display+1]={kind="stepper",label="Panel pages every",value=(cfg.panelRotate or 12).." s",
+      down=function()K.api.config("panelRotate",max(4,(cfg.panelRotate or 12)-2))end,up=function()K.api.config("panelRotate",min(3600,(cfg.panelRotate or 12)+2))end}
+    local idleNext=IDLE[1];for i,n in ipairs(IDLE)do if n==cfg.idle then idleNext=IDLE[i%#IDLE+1]end end
+    local agent=K.agent
+    return {
+      {name="Personalize",items={
+        {kind="choice",label="Start colour",value=nameIn(K.START_COLORS,cfg.startColor),fn=function()K.api.config("startColor",cycle(K.START_COLORS,cfg.startColor,"id"))end},
+        {kind="choice",label="Accent colour",value=nameIn(K.ACCENT_COLORS,cfg.accentColor),fn=function()K.api.config("accentColor",cycle(K.ACCENT_COLORS,cfg.accentColor,"id"))end},
+        {kind="button",label="Your name",value=tostring(cfg.user),fn=function()prompt("Your name","What should ccOS call you?",cfg.user,function(t)if t~=""then K.api.config("user",t:sub(1,40))end end)end},
+        {kind="choice",label="Screen saver after",value=idleName(cfg.idle or 0),fn=function()K.api.config("idle",idleNext)end},
+      }},
+      {name="Time and language",items={
+        {kind="choice",label="Time zone",value=cfg.timezone,fn=function()K.api.config("timezone",cycle(K.clock.zones,cfg.timezone))end},
+        {kind="stepper",label="UTC offset",value=fmtOffset(cfg.utcOffset),
+          down=function()K.api.config("timezone","fixed");K.api.config("utcOffset",max(-720,cfg.utcOffset-15))end,
+          up=function()K.api.config("timezone","fixed");K.api.config("utcOffset",min(840,cfg.utcOffset+15))end},
+        toggle("24-hour clock","clock24"),toggle("Pad hour with zero","leadingZero"),toggle("Show seconds","seconds"),
+      }},
+      {name="Sound",items={
+        {kind="slider",label="Music volume",value=cfg.musicVolume,fn=function(f)A.setVolume(f)end},
+        {kind="slider",label="Balance",value=((cfg.balance or 0)+1)/2,shown=(cfg.balance or 0)==0 and "Centre"or(cfg.balance<0 and floor(-cfg.balance*100+0.5).."% L"or floor(cfg.balance*100+0.5).."% R"),fn=function(f)A.setBalance(floor((f*2-1)*20+0.5)/20)end},
+        {kind="slider",label="System sound volume",value=cfg.uiVolume or 0.6,fn=function(f)K.api.config("uiVolume",floor(f*20+0.5)/20);K.sfx("notify")end},
+        toggle("System sounds","sounds"),toggle("Touch sounds","touchSounds"),toggle("Swap stereo speakers","swapSpeakers"),
+        {kind="button",label="Test speakers",value="Left",fn=function()A.note("bell",12,-1,1.5)end,second={"Right",function()A.note("bell",12,1,1.5)end}},
+      }},
+      {name="Display",items=display},
+      {name="AI Agent",items={
+        {kind="button",label="Assistant",value="Open AI Agent",fn=function()P.go("agent")end},
+        {kind="button",label="OpenRouter key",value=agent and agent.configured()and "Change"or "Add key",fn=function()if agent then agent.configure()end end},
+        {kind="button",label="Model",value=tostring(cfg.agentModel),fn=function()prompt("OpenRouter model","A model id with tool calling.",cfg.agentModel,function(t)if agent and t~=""then local ok,why=agent.selectModel(t);if not ok then K.notify("Model",why,{quiet=true})end end end)end},
+        toggle("Review changes first","agentConfirm"),
+        {kind="stepper",label="Step limit",value=tostring(cfg.agentMaxSteps),down=function()K.api.config("agentMaxSteps",max(1,cfg.agentMaxSteps-1))end,up=function()K.api.config("agentMaxSteps",min(40,cfg.agentMaxSteps+1))end},
+      }},
+      {name="Update and recovery",items={
+        {kind="info",label="Version",value="ccOS "..tostring(K.version or "")},
+        toggle("Automatic update checks","autoUpdates"),
+        {kind="button",label=K.updates and K.updates.status or "Updates",value=(K.updates and K.updates.available)and "Install"or "Check now",
+          fn=function()if not K.updates then return end;if K.updates.available then K.updates.prompt()else K.updates.check(true)end end},
+        {kind="button",label="Recovery",value="Exit to CraftOS",fn=function()K.confirmPower(K.pictureScreen()or K.homeScreen(),"exit")end},
+      }},
+    }
+  end
+
+  local function drawControl(o,it,x,y,w,ui)
+    local text,fill,hit,button=ui.text,ui.fill,ui.hit,ui.button
+    if it.kind=="toggle"then
+      if it.on then fill(x,y,3,1,T.accent);fill(x+3,y,1,1,T.text)else fill(x,y,1,1,T.text);fill(x+1,y,3,1,T.raised)end
+      text(x+5,y,it.on and "On"or "Off",T.text)
+      hit(x,y,8,1,it.fn)
+    elseif it.kind=="choice"then
+      local bw=min(w,24)
+      fill(x,y,bw,1,T.raised);text(x+1,y,clip(it.value,bw-4),T.text,T.raised);text(x+bw-2,y,"\31",T.text,T.raised)
+      hit(x,y,bw,1,it.fn)
+    elseif it.kind=="stepper"then
+      button(x,y,3,"-",it.down);text(x+4,y,it.value,T.text);button(x+5+#it.value,y,3,"+",it.up)
+    elseif it.kind=="slider"then
+      local bw=min(w-6,24);local at=floor(it.value*(bw-1)+0.5)
+      local line=string.char(140)
+      o.cells(x,y,{{line:rep(bw),hx(T.accent):rep(at)..hx(T.raised):rep(bw-at),hx(T.bg):rep(bw)}})
+      fill(x+at,y,1,1,T.text)
+      text(x+bw+2,y,it.shown or(floor(it.value*100+0.5).."%"),T.text)
+      hit(x,y,bw,1,function(tx)it.fn(max(0,min(1,((tx or x)-x)/(bw-1))))end)
+    elseif it.kind=="button"then
+      local label=clip(it.value,max(1,w-4))
+      button(x,y,#label+4,label,it.fn,true)
+      if it.second then button(x+#label+5,y,#it.second[1]+4,it.second[1],it.second[2],true)end
+    elseif it.kind=="info"then
+      text(x,y,clip(it.value,w),T.muted)
+    end
+  end
+
+  function P.settings(s,v,m,o,ui)
+    local W,H=s.w,s.h
+    local pages=P.settingsPages()
+    v.settingsPage=max(1,min(v.settingsPage or 1,#pages))
+    local page=pages[v.settingsPage]
+    local text,fill,hit=ui.text,ui.fill,ui.hit
+    local two=W>=64
+    local paneW,left,top
+    if m.big then
+      local bx=max(1,m.L-6);left=max(m.L,bx+6)
+      paneW=two and min(floor(W/2),max(floor(W*0.3),left+floor(M.textWidth("PC settings")/2)+3))or W
+      fill(1,1,paneW,H,T.select)
+      o.cells(bx,m.headTop,startScreen.remember("back"..hx(T.select),function()return M.markCells(M.MARKS.back,hx(T.text),hx(T.select),0,0)end))
+      hit(bx,m.headTop,5,3,function()if not two and v.settingsOpen then v.settingsOpen=nil else ui.go("home")end end)
+      o.cells(left,m.headTop,startScreen.headingCells("PC settings",hx(T.text),hx(T.select)))
+      top=m.headTop+4
+    else
+      paneW=two and 24 or W
+      fill(1,1,paneW,H,T.select)
+      text(1,1," \27 ",T.text,T.select);hit(1,1,3,1,function()if not two and v.settingsOpen then v.settingsOpen=nil else ui.go("home")end end)
+      text(5,1,"PC settings",T.text,T.select)
+      left,top=2,3
+    end
+    local showList=two or not v.settingsOpen
+    if showList then
+      local step=(m.big and H-top>=#pages*2)and 2 or 1
+      for i,pg in ipairs(pages)do
+        local y=top+(i-1)*step
+        local sel=two and i==v.settingsPage
+        if sel then fill(left-1,y,paneW-left,1,T.accent)end
+        text(left,y,clip(pg.name,paneW-left-2),T.text,sel and T.accent or T.select)
+        hit(1,y,paneW,1,function()v.settingsPage=i;v.settingsOpen=true;v.settingsScroll=1 end)
+      end
+    end
+    if two or v.settingsOpen then
+      local rx=two and paneW+max(3,m.L) or left
+      local rw=W-rx-max(1,floor(m.L/2))
+      local y
+      if m.big then
+        if two and M.textWidth(page.name)/2>rw then text(rx,m.headTop+1,clip(page.name,rw),T.text)
+        elseif two then o.cells(rx,m.headTop,startScreen.headingCells(page.name,hx(T.text),hx(T.bg)))
+        else fill(1,1,W,H,T.bg);o.cells(left,m.headTop,startScreen.headingCells(page.name,hx(T.text),hx(T.bg)))
+          o.cells(max(1,m.L-6),m.headTop,startScreen.remember("back"..hx(T.bg),function()return M.markCells(M.MARKS.back,hx(T.text),hx(T.bg),0,0)end)) end
+        y=m.headTop+4
+      else
+        if not two then fill(1,1,W,H,T.bg);fill(1,1,W,1,T.surface);text(1,1," \27 ",T.text,T.surface);text(5,1,page.name,T.text,T.surface)
+        else text(rx,1,clip(page.name,rw),T.text)end
+        y=3
+      end
+      local n=#page.items;local room=H-y+1
+      local stacked=room>=n*3 or(room>=n*2 and rw<40)
+      local step=room>=n*3 and 3 or(room>=n*2 and 2 or 1)
+      -- Long pages scroll a page of rows at a time.
+      local per=n
+      if n*step>room then per=max(1,room-1) end
+      local pages=max(1,ceil(n/per))
+      v.settingsScroll=max(1,min(v.settingsScroll or 1,pages))
+      local first=(v.settingsScroll-1)*per
+      for i=first+1,min(n,first+per)do
+        local it=page.items[i]
+        if stacked and step>=2 then
+          text(rx,y,clip(it.label,rw),T.text);drawControl(o,it,rx,y+1,rw,ui)
+        else
+          local lw=min(floor(rw/2),26)
+          text(rx,y,clip(it.label,lw-1),T.text);drawControl(o,it,rx+lw,y,rw-lw,ui)
+        end
+        if it.fn and it.kind~="slider"then hit(rx,y,min(rw,#it.label),1,it.fn)end
+        y=y+step
+      end
+      if pages>1 then startScreen.scrollbar(o,m,rx,v.settingsScroll,pages,function(p)v.settingsScroll=max(1,min(pages,p))end,T.bg,rx+rw-1,H)end
+    end
   end
   return P
 end
@@ -6953,23 +6404,55 @@ return function(K,T)
 end
 ]=]},
   {"ccos/lib/power.lua",[=[
--- Hallmark: quiet Windows 8.1-inspired power transition; ccOS tokens only.
--- Pre-emit critique: P5 H5 E4 S5 R5 V4. No fabricated progress messages.
+-- Windows 8.1-style progress ring: five dots chase round a circle on the
+-- Start colour, slowing as they gather at the top and spreading as they
+-- sweep the bottom. Used while booting and for the power transition. A
+-- plain status line; no fabricated progress.
 return function(K,gfx,T)
-  local P={duration=1.6,frameTime=0.08}
+  local P={duration=1.6,frameTime=0.06}
+  local floor,max,min=math.floor,math.max,math.min
+  local TAU=math.pi*2
+  -- The ring as teletext cells for a screen of W x H; r scales with it.
+  function P.ring(W,H,frame,bg,fg,limit)
+    local r=max(4,min(limit or 11,floor(min(W*2,H*3)/8)))
+    local dot=r>=8 and 2 or 1
+    local size=2*r+dot+2
+    local cw,ch=size+size%2,size+(3-size%3)%3
+    local cv=gfx.canvas(cw,ch,bg)
+    local c=(size+1)/2
+    local t=frame*P.frameTime
+    for i=0,4 do
+      local u=(t/1.25-i*0.09)%1
+      local a=u-0.11*math.sin(TAU*u)
+      local x=floor(c+math.sin(TAU*a)*r-(dot-1)/2+0.5)
+      local y=floor(c-math.cos(TAU*a)*r-(dot-1)/2+0.5)
+      for dy=0,dot-1 do for dx=0,dot-1 do cv.set(x+dx,y+dy,fg)end end
+    end
+    return gfx.cells(cv.rows(),bg),cw/2
+  end
+  -- A light heading line when the screen is big enough, else plain text.
+  function P.label(target,W,y,text,bg,fg)
+    local M=gfx.metro
+    if M and W>=60 and M.textWidth(text)/2<=W-4 then
+      local lc=M.markCells(M.textRows(text),gfx.HEX[fg],gfx.HEX[bg],0,1)
+      gfx.drawCells(target,max(1,floor((W-#lc[1][1])/2)+1),y,lc)
+      return 3
+    end
+    target.setBackgroundColor(bg);target.setTextColor(fg)
+    target.setCursorPos(max(1,floor((W-#text)/2)+1),y);target.write(text:sub(1,W))
+    return 1
+  end
   function P.draw(target,W,H,frame,kind)
     target.setCursorBlink(false);target.setBackgroundColor(T.select);target.setTextColor(T.text);target.clear()
-    local size=math.min(18,W-2);local cv=gfx.canvas(size,15,gfx.HEX[T.select])
-    for i=0,4 do
-      local angle=(frame-i)*math.pi/6
-      local x=math.floor(size/2+math.cos(angle)*5+0.5)+1
-      local y=math.floor(7+math.sin(angle)*5+0.5)+1
-      cv.set(x,y,gfx.HEX[i<3 and T.text or T.muted])
-    end
-    local cells=gfx.cells(cv.rows(),gfx.HEX[T.select]);local top=math.max(1,math.floor(H/2)-4)
-    gfx.drawCells(target,math.floor((W-gfx.cellsWidth(cells))/2)+1,top,cells)
+    local bg,fg=gfx.HEX[T.select],gfx.HEX[T.text]
+    local cells,cw=P.ring(W,H,frame,bg,fg)
     local label=kind=="shutdown"and "Shutting down"or "Restarting"
-    target.setCursorPos(math.max(1,math.floor((W-#label)/2)+1),math.min(H,top+#cells+1));target.write(label:sub(1,W))
+    local labelRows=(W>=60 and H>=24)and 3 or 1
+    local top=max(1,floor((H-#cells-1-labelRows)/2)+1)
+    gfx.drawCells(target,floor((W-cw)/2)+1,top,cells)
+    local ly=min(H,top+#cells+1)
+    if labelRows==3 then P.label(target,W,ly,label,T.select,T.text)
+    else target.setCursorPos(max(1,floor((W-#label)/2)+1),ly);target.write(label:sub(1,W))end
   end
   function P.play(kind)
     for frame=1,math.ceil(P.duration/P.frameTime)do
@@ -7033,83 +6516,530 @@ end
 return M
 ]=]},
   {"ccos/lib/startscreen.lua",[=[
--- Hallmark: Windows 8.1-inspired Start; native ccOS palette and typography.
--- Pre-emit critique: P5 H5 E4 S5 R4 V5. Grouped flat tiles, no text composer.
+-- Windows 8.1-style Start for Big Picture. Tiles sit on the 70/150/310 grid:
+-- a small tile is sw x sh cells (square on screen), medium 2x2 units, wide
+-- 4x2, and every tile leaves a one-teletext-pixel gutter on its right and
+-- bottom edge (3 screen pixels each way). Groups flow in column blocks four
+-- units wide, like the real Start, and pages pan by whole blocks.
 return function(K,gfx,T)
-  local S={};local floor,min,max=math.floor,math.min,math.max
-  local tileColors={Files=T.orange,Time=T.info,Media=T.accent2,Math=T.accent,Text=T.green,Developer=T.select,System=T.green,Games=T.hot,AI=T.accent}
-  function S.layout(cards,W,H)
-    local cols=max(2,min(5,floor((W-3)/14)));local rows=max(1,floor((H-7)/5))
-    local cw=floor((W-3-(cols-1))/cols);local th=max(3,min(5,floor((H-7-(rows-1))/rows)))
-    local pages={{}};local col,row=0,0
-    for _,a in ipairs(cards)do
-      local span=W>=60 and(a.id=="desktop"or a.id=="music"or a.id=="clock")and 2 or 1
-      span=min(cols,max(span,math.ceil((#a.name+2)/cw)))
-      if col+span>cols then col=0;row=row+1 end
-      if row>=rows then pages[#pages+1]={};col,row=0,0 end
-      local page=pages[#pages];page[#page+1]={app=a,x=2+col*(cw+1),y=6+row*(th+1),w=cw*span+span-1,h=th}
-      col=col+span
+  local S={}
+  local floor,min,max=math.floor,math.min,math.max
+  local M=gfx.metro
+  local function hx(c)return gfx.HEX[c]or"f"end
+
+  local CAT={Files=T.warn,Time=T.info,Media=T.orange,Math=T.ok,Text=T.accent2,Developer=T.surface,System=T.magenta,Games=T.green,AI=T.accent}
+  local COLOR={
+    files=T.warn,viewer=T.info,print=T.green,notes=T.magenta,checklist=T.ok,journal=T.accent2,bookmarks=T.danger,
+    disks=T.info,storage=T.orange,backup=T.accent,clock=T.info,calendar=T.accent2,worldclock=T.accent,focus=T.danger,stopwatch=T.orange,
+    timer=T.green,music=T.orange,piano=T.hot,paint=T.magenta,soundtest=T.info,metronome=T.accent2,calc=T.green,units=T.ok,
+    percentage=T.info,base=T.accent2,random=T.orange,tally=T.accent,textstats=T.accent2,textcase=T.info,lines=T.ok,replace=T.orange,
+    urlencode=T.accent,base64=T.magenta,terminal=T.surface,edit=T.info,lua=T.accent2,json=T.orange,http=T.accent,network=T.green,
+    logs=T.raised,settings=T.accent2,tasks=T.green,about=T.info,devices=T.orange,notifications=T.danger,redstone=T.danger,
+    analog=T.orange,bundled=T.magenta,peripherals=T.accent,inventory=T.warn,energy=T.ok,fluids=T.info,sysinfo=T.accent2,
+    display=T.info,palette=T.hot,worm=T.ok,dice=T.danger,coin=T.warn,lights=T.orange,memory=T.accent2,tictactoe=T.info,
+    guess=T.magenta,agent=T.accent,
+  }
+  -- Shorter tile names, used only when the full name does not fit.
+  local SHORT={calc="Calc",print="Print",notifications="Alerts",units="Units",percentage="Percent",base="Bases",random="Random",
+    textstats="Text stats",textcase="Case",replace="Replace",urlencode="URL encode",peripherals="Peripheral",analog="Analog",
+    bundled="Bundled",inventory="Inventory",energy="Energy",fluids="Fluids",disks="Disks",storage="Storage",backup="Backups",
+    sysinfo="System",display="Displays",palette="Colours",soundtest="Speakers",metronome="Metronome",lights="Lights Out",
+    memory="Memory",tictactoe="Tic-tac",worldclock="World time",timer="Countdown",network="Network",http="HTTP",json="JSON",
+    logs="Logs",guess="Guess",coin="Coin flip",tally="Counter"}
+  -- Eight-character names for the smallest medium tiles.
+  local TINY={checklist="To-do",bookmarks="Links",stopwatch="Watch",timer="Timer",metronome="Tempo",inventory="Items",
+    peripherals="Hardware",textstats="Stats",urlencode="URL",lights="Lights",worldclock="World",calendar="Calendar",
+    percentage="Percent",textcase="Case",backup="Backups",network="Network",storage="Storage"}
+  S.SHORT,S.TINY=SHORT,TINY
+  function S.color(a)return COLOR[a.id]or CAT[a.category]or T.accent end
+  function S.label(a,room)
+    if #a.name<=room then return a.name end
+    local short=SHORT[a.id]
+    if short and #short<=room then return short end
+    local tiny=TINY[a.id]
+    if tiny and #tiny<=room then return tiny end
+    local first=a.name:match("^(%S+)")
+    if first and #first<=room and #first>=3 then return first end
+    return a.name:sub(1,room)
+  end
+
+  local SIZE={small={1,1},medium={2,2},wide={4,2},large={4,4}}
+  local SW={[2]=3,[3]=5,[4]=6,[5]=8}
+
+  -- Every position on the Start screen, in cells, for a W x H monitor.
+  function S.metrics(W,H)
+    local m={W=W,H=H}
+    m.big=H>=17 and W>=48
+    m.L=max(2,floor(W*0.055+0.5))
+    if m.big then
+      m.headTop=max(1,floor(H*0.05+0.5))
+      m.groupRow=m.headTop+4
+      m.tilesTop=m.groupRow+(H>=30 and 2 or 1)
+      m.arrowH=H>=24 and 3 or 2
+      m.arrowTop=H>=30 and H-3 or H-m.arrowH+1
+      m.tilesBottom=m.arrowTop-(H>=30 and 2 or 1)
+    else
+      m.headTop,m.groupRow,m.tilesTop=1,2,3
+      m.arrowH,m.arrowTop=1,H
+      m.tilesBottom=H-2
     end
+    m.contentTop,m.contentBottom=m.groupRow,m.tilesBottom
+    local R=m.tilesBottom-m.tilesTop+1
+    for _,want in ipairs({6,4,2})do
+      for _,c in ipairs({5,4,3,2})do
+        if not m.sh and 2*floor(R/(2*c))>=want and(want<6 or c>=3)then m.sh=c end
+      end
+      if m.sh then break end
+    end
+    m.sh=m.sh or 2;m.sw=SW[m.sh]
+    m.Rs=max(2,2*floor(R/(2*m.sh)))
+    local shift=floor(max(0,R-m.Rs*m.sh)/2)
+    m.groupRow,m.tilesTop=m.groupRow+shift,m.tilesTop+shift
+    m.avail=W-m.L
+    m.blockUnits=8*m.sw<=m.avail and 4 or 2
+    m.groupGap=max(2,m.sw)
+    m.scrollRow=H
+    return m
+  end
+
+  -- First-fit tiles into column blocks; a group always starts a new block.
+  function S.place(groups,m)
+    local blocks={}
+    for _,g in ipairs(groups)do
+      local block
+      local function new()block={group=g,first=block==nil,tiles={},grid={}};blocks[#blocks+1]=block end
+      new()
+      for _,tile in ipairs(g.tiles)do
+        local size=tile.size or "medium";local d=SIZE[size]
+        if d[1]>m.blockUnits or d[2]>m.Rs then size="medium";d=SIZE.medium end
+        local function free(c,r)
+          for y=r,r+d[2]-1 do for x=c,c+d[1]-1 do if block.grid[y*8+x]then return false end end end
+          return true
+        end
+        local function find()
+          for r=0,m.Rs-d[2],d[2]>=2 and 2 or 1 do
+            for c=0,m.blockUnits-d[1],d[1]>=2 and 2 or 1 do if free(c,r)then return c,r end end
+          end
+        end
+        local c,r=find()
+        if not c then new();c,r=find()end
+        for y=r,r+d[2]-1 do for x=c,c+d[1]-1 do block.grid[y*8+x]=true end end
+        block.tiles[#block.tiles+1]={app=tile.app,size=size,c=c,r=r,uw=d[1],uh=d[2]}
+      end
+    end
+    return blocks
+  end
+
+  function S.paginate(blocks,m)
+    local bw=m.blockUnits*m.sw
+    local pages,page,x={},nil,0
+    for _,b in ipairs(blocks)do
+      local gap=(page and #page.blocks>0 and b.first)and m.groupGap or 0
+      if not page or x+gap+bw>m.avail then page={blocks={}};pages[#pages+1]=page;x,gap=0,0 end
+      b.x=x+gap;page.blocks[#page.blocks+1]=b;x=b.x+bw
+    end
+    if #pages==0 then pages[1]={blocks={}}end
     return pages
   end
-  function S.draw(s,go)
-    local b,W,H=s.buf,s.w,s.h;local v=s.picture;local bg=T.select
-    local function text(x,y,t,fg,back)
-      if y<1 or y>H or x>W then return end
-      b.setCursorPos(x,y);b.setTextColor(fg or T.text);b.setBackgroundColor(back or bg);b.write(tostring(t):sub(1,max(0,W-x+1)))
-    end
-    local function fill(x,y,w,h,c)for yy=y,min(H,y+h-1)do text(x,yy,(" "):rep(w),c,c)end end
-    local function hit(x,y,w,h,fn)s.hits[#s.hits+1]={x1=x,y1=y,x2=x+w-1,y2=y+h-1,fn=function()fn();K.markAll()end}end
-    local function button(x,y,label,fn)text(x,y,label,T.text,bg);hit(x,y,#label,1,fn)end
-    fill(1,1,W,H,bg)
-    if H>=15 then gfx.drawCells(b,2,1,gfx.pixelText("Start",1,"0",gfx.HEX[bg]))else text(2,1,"Start",T.text)end
-    local user=tostring(K.cfg.user):sub(1,max(1,min(16,W-28)))
-    text(W-#user-10,2,user,T.text);button(W-8,2,"Power",function()go("power")end)
-    local categories={"Favorites","All"};for _,name in ipairs(K.catalog.categories)do if name~="Favorites"then categories[#categories+1]=name end end
-    local index=1;for i,name in ipairs(categories)do if name==v.category then index=i end end
-    button(2,4,"< Cat",function()v.category=categories[(index-2)%#categories+1];v.page=1 end)
-    text(10,4,(v.category or "Favorites"):sub(1,max(1,W-19)),T.text)
-    button(W-7,4,"Cat >",function()v.category=categories[index%#categories+1];v.page=1 end)
-    local byId={};for _,a in ipairs(K.APPS)do byId[a.id]=a end
-    local cards={}
-    if v.category=="Favorites"then
-      cards[#cards+1]={id="desktop",name="Desktop",category="System"}
-      local seen={};local order={"files","music","clock","agent","settings"}
-      for _,id in ipairs(K.cfg.monitorFavorites)do order[#order+1]=id end
-      for _,id in ipairs(order)do if byId[id]and not seen[id]then cards[#cards+1]=byId[id];seen[id]=true end end
-    else
-      for _,a in ipairs(K.APPS)do if not a.hidden and(v.category=="All"or a.category==v.category)then cards[#cards+1]=a end end
-    end
-    local pages=S.layout(cards,W,H);v.page=max(1,min(v.page or 1,#pages))
-    local info=K.audio.info()
-    for _,tile in ipairs(pages[v.page])do
-      local a,x,y,w,h=tile.app,tile.x,tile.y,tile.w,tile.h
-      local color=tileColors[a.category]or T.accent
-      if a.id=="desktop"then color=T.accent2 end
-      fill(x,y,w,h,color)
-      if a.id=="clock"and w>=19 then
-        text(x+1,y+1,K.clockText(false):sub(1,w-2),T.text,color)
-        if h>=5 then text(x+1,y+2,K.clock.date(K.cfg,"%a %d %b"),T.text,color)end
-      elseif a.id=="music"and w>=19 then
-        text(x+1,y+1,(info.title or info.discTitle or "Your music"):sub(1,w-2),T.text,color)
-        if h>=5 then text(x+1,y+2,info.state=="playing"and "Now playing"or "Tap to browse",T.text,color)end
-      elseif a.id=="desktop"then text(x+1,y+1,"Full Sync",T.text,color)
-      else
-        local source=gfx.ICONS[a.id]or gfx.ICONS.about
-        local blank=source[1]:sub(1,1);local rows={}
-        for i,line in ipairs(source)do rows[i]=line:gsub(".",function(c)return c==blank and gfx.HEX[color]or gfx.HEX[T.text]end)end
-        gfx.drawCells(b,x+floor((w-4)/2),y+max(0,floor((h-3)/2)),gfx.cells(rows,gfx.HEX[color]))
+
+  function S.pageTiles(page,m)
+    local list={}
+    for _,b in ipairs(page.blocks)do
+      for _,t in ipairs(b.tiles)do
+        list[#list+1]={app=t.app,size=t.size,block=b,x=m.L+b.x+t.c*m.sw,y=m.tilesTop+t.r*m.sh,w=t.uw*m.sw,h=t.uh*m.sh}
       end
-      text(x+1,y+h-1,a.name:sub(1,w-2),T.text,color)
-      hit(x,y,w,h,function()if a.id=="desktop"then K.setFullSync(true)else go(a.id)end end)
     end
-    button(2,H-1,"< Prev",function()v.page=max(1,v.page-1)end)
-    local page=v.page.." / "..#pages;text(floor((W-#page)/2)+1,H-1,page,T.text)
-    button(W-7,H-1,"Next >",function()v.page=min(#pages,v.page+1)end)
-    button(2,H,v.category=="All"and "Favorites"or "All apps",function()v.category=v.category=="All"and "Favorites"or "All";v.page=1 end)
-    text(floor(W/2)-1,H,"ccOS",T.text)
-    local status=K.clockText(false);text(W-#status,H,status,T.text)
+    return list
   end
+
+  -- Flat card list to pages of positioned tiles (used by layout checks).
+  function S.layout(cards,W,H)
+    local m=S.metrics(W,H)
+    local g={tiles={}}
+    for _,a in ipairs(cards)do g.tiles[#g.tiles+1]={app=a,size=(a.id=="music"or a.id=="clock")and "wide"or "medium"}end
+    local out={}
+    for i,p in ipairs(S.paginate(S.place({g},m),m))do out[i]=S.pageTiles(p,m)end
+    return out,m
+  end
+
+  -- Pinned group first, then one group per category for everything else.
+  function S.groups()
+    local byId,seen={}, {}
+    for _,a in ipairs(K.APPS)do byId[a.id]=a end
+    local pinned={tiles={}}
+    local function pin(a,size)if a and not seen[a.id]then pinned.tiles[#pinned.tiles+1]={app=a,size=size};seen[a.id]=true end end
+    pin(byId.clock,"wide");pin(byId.music,"wide")
+    for _,id in ipairs({"files","agent","settings","terminal","calendar"})do pin(byId[id],"medium")end
+    for _,id in ipairs(K.cfg.monitorFavorites or {})do pin(byId[id],"medium")end
+    local groups={pinned}
+    for _,cat in ipairs(K.catalog.categories)do
+      if cat~="Favorites"then
+        local g={name=cat,tiles={}}
+        for _,a in ipairs(K.APPS)do
+          if not a.hidden and a.category==cat and not seen[a.id]then g.tiles[#g.tiles+1]={app=a,size="medium"}end
+        end
+        if #g.tiles>0 then groups[#groups+1]=g end
+      end
+    end
+    return groups
+  end
+
+  ----------------------------------------------------------------------
+  -- Drawing
+  ----------------------------------------------------------------------
+  local cache,cached={},0
+  local function remember(key,build)
+    local v=cache[key]
+    if not v then
+      if cached>160 then cache,cached={},0 end
+      v=build();cache[key]=v;cached=cached+1
+    end
+    return v
+  end
+
+  local function painter(s)
+    local b,W,H=s.buf,s.w,s.h
+    local P={}
+    function P.text(x,y,t,fg,back)
+      t=tostring(t or "")
+      if y<1 or y>H or x>W or t==""then return end
+      if x<1 then t=t:sub(2-x);x=1 end
+      b.setCursorPos(x,y);b.setTextColor(fg or T.text);b.setBackgroundColor(back or T.select);b.write(t:sub(1,max(0,W-x+1)))
+    end
+    function P.fill(x,y,w,h,c)if w>0 then for yy=max(1,y),min(H,y+h-1)do P.text(x,yy,(" "):rep(w),c,c)end end end
+    function P.cells(x,y,cells)
+      for i,c in ipairs(cells)do
+        local yy=y+i-1
+        if yy>=1 and yy<=H then
+          local t,f,bk=c[1],c[2],c[3]
+          if x<1 then t,f,bk=t:sub(2-x),f:sub(2-x),bk:sub(2-x)end
+          local room=W-max(1,x)+1
+          if room>0 then b.setCursorPos(max(1,x),yy);b.blit(t:sub(1,room),f:sub(1,room),bk:sub(1,room))end
+        end
+      end
+    end
+    function P.hit(x,y,w,h,fn)s.hits[#s.hits+1]={x1=max(1,x),y1=max(1,y),x2=min(W,x+w-1),y2=min(H,y+h-1),fn=function(...)fn(...);K.markAll()end}end
+    return P
+  end
+  S.painter=painter
+
+  -- Heading-face text as cells, its capitals one pixel below the cell top.
+  function S.headingCells(text,fg,bg)
+    return remember("h"..text..fg..bg,function()return M.markCells(M.textRows(text),fg,bg,0,1)end)
+  end
+
+  S.remember=remember
+  local function dateText(fmt)
+    local ok,v=pcall(K.clock.date,K.cfg,fmt)
+    return ok and v or ""
+  end
+
+  -- One tile, including live content. Returns nothing; registers its hit.
+  local function drawTile(P,t,bg,go)
+    local a,x,y,pw,ph=t.app,t.x,t.y,t.w,t.h
+    local color=S.color(a);local c,g=hx(color),hx(bg)
+    local room=pw-2
+    local label=S.label(a,room)
+    local live
+    if a.id=="clock"then
+      local now=K.clockText(false)
+      local digits,suffix=now:match("^(.-)%s*([AP]M)$")
+      digits=digits or now
+      local top=ph>=8 and 4 or 1
+      local date=dateText("%A %d %B")
+      if #date>room then date=dateText("%a %d %b")end
+      if #date>room then date=dateText("%a %d")end
+      -- Light digits when they fit inside the tile; plain text otherwise.
+      if 2+M.textWidth(digits)+(suffix and 6 or 0)<=pw*2-2 then
+        local cells=remember("clock"..now..pw..ph..c..g,function()
+          local cv=M.tileCanvas(pw,ph,c,g)
+          M.drawText(cv,3,top+1,digits,"0",1)
+          return gfx.cells(cv.rows(),c)
+        end)
+        P.cells(x,y,cells)
+        if suffix then
+          local tx=x+floor((3+M.textWidth(digits))/2)+1
+          P.text(tx,y+floor((top+6)/3),suffix,T.text,color)
+        end
+        local dateY=y+floor((top+6)/3)+1
+        P.text(x+1,dateY,date:sub(1,room),T.text,color)
+        -- The time speaks for itself when the name would crowd the date.
+        if y+ph-2-dateY<2 then label=nil end
+      else
+        P.cells(x,y,remember("plain"..pw..ph..c..g,function()return gfx.cells(M.tileCanvas(pw,ph,c,g).rows(),c)end))
+        P.text(x+1,y+1,now:sub(1,room),T.text,color)
+        P.text(x+1,y+2,date:sub(1,room),T.text,color)
+      end
+      live=true
+    elseif a.id=="calendar"then
+      local day=tostring(tonumber(dateText("%d"))or dateText("%d"))
+      local scale=ph*3-1>=22 and 2 or 1
+      local cells=remember("cal"..day..pw..ph..c..g..scale,function()
+        local cv=M.tileCanvas(pw,ph,c,g)
+        local w=M.textWidth(day,scale)
+        local top=scale==2 and 3 or max(2,floor(((ph-2)*3-7)/2)+1)
+        M.drawText(cv,floor((pw*2-1-w)/2)+1,top,day,"0",scale)
+        return gfx.cells(cv.rows(),c)
+      end)
+      P.cells(x,y,cells)
+      local wd=dateText("%A");label=#wd<=room and wd or wd:sub(1,3)
+      live=true
+    elseif a.id=="music"and t.size=="wide"then
+      local info=K.audio.info()
+      local title=info.discTitle or info.title
+      local playing=info.state=="playing"
+      local cells=remember("music"..pw..ph..c..g..tostring(title~=nil),function()
+        local cv=M.tileCanvas(pw,ph,c,g)
+        local rows=M.glyph("music")
+        if title then M.stamp(cv,pw*2-1-#rows[1]-3,4,rows,"0")else M.placeGlyph(cv,rows,pw,ph,"0",true)end
+        return gfx.cells(cv.rows(),c)
+      end)
+      P.cells(x,y,cells)
+      if title then
+        local tw=room-6
+        P.text(x+1,y+1,tostring(title):sub(1,tw),T.text,color)
+        if ph>=5 then P.text(x+1,y+2,(playing and "Now playing"or "Paused"):sub(1,tw),T.text,color)end
+      end
+      live=true
+    end
+    if not live then
+      local cells=remember("t"..a.id..pw..ph..c..g,function()
+        local cv=M.tileCanvas(pw,ph,c,g)
+        M.placeGlyph(cv,M.glyph(a.id),pw,ph,"0",true)
+        return gfx.cells(cv.rows(),c)
+      end)
+      P.cells(x,y,cells)
+    end
+    if label then P.text(x+1,y+ph-2,label,T.text,color)end
+    if a.id=="notifications"and(K.unread or 0)>0 then
+      local n=tostring(min(99,K.unread));P.text(x+pw-2-#n,y+ph-2,n,T.text,color)
+    end
+    P.hit(x,y,pw,ph,function()go(a.id)end)
+  end
+
+  local function arrow(P,m,x,kind,fn)
+    local small=m.arrowH<3
+    -- Too short for the circled mark: the font's own crisp arrow, on the
+    -- scrollbar row.
+    if not m.big or small then
+      local mark=kind=="down"and "\25"or "\24"
+      local y=m.big and m.scrollRow or m.arrowTop
+      P.text(x,y,mark,T.text,T.select);P.hit(x-1,y-(m.big and 1 or 0),3,m.big and 2 or 1,fn);return 1
+    end
+    local rows=M.MARKS[kind..(small and "Small"or "")]
+    local cells=remember("a"..kind..tostring(small)..hx(T.select),function()return M.markCells(rows,hx(T.text),hx(T.select),0,0)end)
+    P.cells(x,m.arrowTop,cells);P.hit(x,m.arrowTop,#cells[1][1],#cells,fn)
+    return #cells[1][1]
+  end
+
+  local function scrollbar(P,m,x1,page,pages,set,bg,x2,y)
+    if pages<2 then return end
+    bg=bg or T.select;x2=x2 or m.W-1;y=y or m.scrollRow
+    if x2-x1<8 then return end
+    P.text(x1,y,"\17",T.text,bg);P.text(x2,y,"\16",T.text,bg)
+    P.hit(x1-1,y,2,1,function()set(page-1)end);P.hit(x2,y,2,1,function()set(page+1)end)
+    local tx,tw=x1+2,x2-x1-3
+    local thumb=max(2,floor(tw/pages));local at=tx+floor((page-1)*(tw-thumb)/max(1,pages-1)+0.5)
+    local line=string.char(140)
+    P.cells(tx,y,{{line:rep(tw),hx(T.raised):rep(tw),hx(bg):rep(tw)}})
+    P.cells(at,y,{{line:rep(thumb),hx(T.muted):rep(thumb),hx(bg):rep(thumb)}})
+    if at>tx then P.hit(tx,y,at-tx,1,function()set(page-1)end)end
+    if at+thumb<=tx+tw-1 then P.hit(at+thumb,y,tx+tw-at-thumb,1,function()set(page+1)end)end
+  end
+
+  -- User name, account picture, power and search, right-aligned.
+  local function header(P,s,m,title,go,v)
+    local W=s.w;local bg=hx(T.select)
+    if not m.big then
+      P.text(m.L,1,title,T.text)
+      local px=W-6;P.text(px,1,"Power",T.text);P.hit(px,1,5,1,function()v.flyout="power"end)
+      return px
+    end
+    P.cells(m.L,m.headTop,S.headingCells(title,hx(T.text),bg))
+    local right=W-max(1,floor(m.L/2))
+    local sx=right-3
+    local search=remember("search"..bg,function()return M.markCells(M.MARKS.search,hx(T.text),bg,0,0)end)
+    P.cells(sx,m.headTop,search);P.hit(sx,m.headTop,4,3,function()v.view="apps";v.flyout=nil end)
+    local px=sx-6
+    local power=remember("power"..bg,function()return M.markCells(M.MARKS.power,hx(T.text),bg,0,1)end)
+    P.cells(px,m.headTop,power);P.hit(px,m.headTop,4,3,function()v.flyout=v.flyout~="power"and "power"or nil end)
+    local ax=px-7
+    local avatar=remember("avatar"..bg,function()
+      local cv=gfx.canvas(10,9,bg);M.rect(cv,1,1,9,9,hx(T.raised));M.stamp(cv,1,1,M.MARKS.avatar,hx(T.muted))
+      return gfx.cells(cv.rows(),bg)
+    end)
+    P.cells(ax,m.headTop,avatar)
+    local user=tostring(K.cfg.user or "")
+    local nx=max(m.L+floor(M.textWidth(title)/2)+3,ax-2-#user)
+    user=user:sub(1,max(0,ax-2-nx))
+    P.text(ax-2-#user,m.headTop+1,user,T.text)
+    P.hit(ax-2-#user,m.headTop,#user+7,3,function()go("settings")end)
+    return px
+  end
+
+  local function flyout(P,s,m,px,v)
+    if v.flyout~="power"then return end
+    local items={{"Shut down","shutdown"},{"Restart","reboot"},{"Exit to CraftOS","exit"}}
+    local w=19
+    local x=min(s.w-w,px+4-w);local y=m.big and m.headTop+3 or 2
+    P.hit(1,1,s.w,s.h,function()v.flyout=nil end)
+    P.fill(x,y,w,#items+2,T.text)
+    for i,it in ipairs(items)do
+      P.text(x+2,y+i,it[1],T.bg,T.text)
+      P.hit(x,y+i,w,1,function()v.flyout=nil;K.power=it[2];K.running=false end)
+    end
+  end
+
+  S.scrollbar=scrollbar
+  local function toast(P,s,m,v)
+    if not v.message then return end
+    local w=min(s.w-4,max(24,#v.message+4));local x=s.w-w-1;local y=m.big and m.groupRow or 2
+    P.fill(x,y,w,3,T.surface);P.fill(x,y,1,3,T.accent)
+    P.text(x+2,y+1,v.message:sub(1,w-4),T.text,T.surface)
+    P.hit(x,y,w,3,function()v.message=nil end)
+  end
+  S.toast=toast
+
+  function S.draw(s,go)
+    local P=painter(s);local v=s.picture;local W,H=s.w,s.h
+    local m=S.metrics(W,H)
+    P.fill(1,1,W,H,T.select)
+    local pages=S.paginate(S.place(S.groups(),m),m)
+    v.startPage=max(1,min(v.startPage or 1,#pages))
+    local px=header(P,s,m,"Start",go,v)
+    local page=pages[v.startPage]
+    for _,b in ipairs(page.blocks)do
+      if b.first and b.group.name then P.text(m.L+b.x,m.groupRow,b.group.name:sub(1,m.blockUnits*m.sw-1),T.text)end
+    end
+    for _,t in ipairs(S.pageTiles(page,m))do drawTile(P,t,T.select,go)end
+    local aw=arrow(P,m,m.L,"down",function()v.view="apps";v.appsPage=1;v.flyout=nil end)
+    scrollbar(P,m,(m.arrowTop+m.arrowH-1>=m.scrollRow)and m.L+aw+2 or m.L,v.startPage,#pages,function(p)v.startPage=max(1,min(#pages,p))end)
+    toast(P,s,m,v)
+    flyout(P,s,m,px,v)
+  end
+
+  ----------------------------------------------------------------------
+  -- Apps by category, or search results while typing
+  ----------------------------------------------------------------------
+  -- Visible apps whose name, id or description contains the query.
+  function S.search(query)
+    local q=tostring(query or ""):lower()
+    local starts,contains={},{}
+    for _,a in ipairs(K.APPS)do
+      if not a.hidden then
+        local name=a.name:lower()
+        if name:sub(1,#q)==q then starts[#starts+1]=a
+        elseif name:find(q,1,true)or a.id:find(q,1,true)or(a.desc or ""):lower():find(q,1,true)then contains[#contains+1]=a end
+      end
+    end
+    for _,a in ipairs(contains)do starts[#starts+1]=a end
+    return starts
+  end
+
+  function S.appColumns(m,query)
+    local colW=min(24,max(16,m.avail))
+    local cols=max(1,floor((m.avail+2)/(colW+2)))
+    local rows=max(3,m.contentBottom-m.contentTop+1)
+    local columns,col={},nil
+    local function put(item)
+      if not col or #col>=rows then col={};columns[#columns+1]=col end
+      col[#col+1]=item
+    end
+    if query and query~=""then
+      local found=S.search(query)
+      put({header=#found==1 and "1 app"or(#found.." apps")})
+      for _,a in ipairs(found)do put({app=a})end
+      return columns,cols,colW,rows,found
+    end
+    for _,cat in ipairs(K.catalog.categories)do
+      if cat~="Favorites"then
+        local list={}
+        for _,a in ipairs(K.APPS)do if not a.hidden and a.category==cat then list[#list+1]=a end end
+        if #list>0 then
+          if col and #col>0 and #col<rows then put(false)end
+          if col and #col>=rows-1 then col=nil end
+          put({header=cat})
+          for _,a in ipairs(list)do put({app=a})end
+        end
+      end
+    end
+    return columns,cols,colW,rows
+  end
+
+  -- The 8.1 Apps search box: white field, query or hint, magnifier mark.
+  local function searchBox(P,s,m,v,px)
+    local W=s.w
+    local right=W-max(1,floor(m.L/2))
+    local w=min(28,max(14,floor(W*0.22)))
+    local x=right-w+1
+    local y=m.big and m.headTop+1 or 1
+    local q=v.search or ""
+    P.fill(x,y,w,1,T.text)
+    local shown=q~=""and q:sub(-(w-4))or "Search apps"
+    P.text(x+1,y,shown,q~=""and T.bg or T.muted,T.text)
+    if q~=""then P.text(x+w-2,y,"\215",T.bg,T.text);P.hit(x+w-3,y,3,1,function()v.search=nil;v.appsPage=1 end)end
+    P.hit(x,y,w-(q~=""and 3 or 0),1,function()
+      K.spawn(function()
+        local text=K.api.prompt("Search apps","Type part of an app's name.",v.search or "")
+        if text then v.search=text~=""and text:sub(1,30)or nil;v.appsPage=1;K.markAll()end
+      end,{title="Search"})
+    end)
+    return x
+  end
+
+  function S.drawApps(s,go)
+    local P=painter(s);local v=s.picture;local W,H=s.w,s.h
+    local m=S.metrics(W,H)
+    P.fill(1,1,W,H,T.select)
+    local q=v.search
+    local title=q and "Search"or "Apps"
+    local px
+    if m.big then
+      P.cells(m.L,m.headTop,S.headingCells(title,hx(T.text),hx(T.select)))
+      local bx=searchBox(P,s,m,v)
+      local sx=m.L+floor(M.textWidth(title)/2)+3
+      local room=max(0,bx-sx-2)
+      local sub=q and("Results for \""..q.."\"")or "by category"
+      if q and #sub>room then sub="\""..q.."\""end
+      P.text(sx,m.headTop+2,sub:sub(1,room),T.muted)
+      px=bx
+    else
+      P.text(m.L,1,title,T.text)
+      local bx=searchBox(P,s,m,v)
+      P.text(m.L+#title+1,1,(q and "results"or "by category"):sub(1,max(0,bx-m.L-#title-2)),T.muted)
+      px=bx
+    end
+    local columns,cols,colW,_,found=S.appColumns(m,q)
+    local pages=math.max(1,math.ceil(#columns/cols))
+    v.appsPage=max(1,min(v.appsPage or 1,pages))
+    local first=(v.appsPage-1)*cols
+    -- A 6px square sitting on the text baseline, 3px apart from the next.
+    local chip=string.char(131)
+    for i=1,cols do
+      local col=columns[first+i]
+      if not col then break end
+      local x=m.L+(i-1)*(colW+2)
+      for r,item in ipairs(col)do
+        local y=m.contentTop+r-1
+        if item and item.header then
+          P.text(x,y,item.header:sub(1,colW),q and T.muted or T.text)
+        elseif item then
+          local a=item.app;local c=S.color(a)
+          local top=found and found[1]==a
+          if top then P.fill(x,y,colW,1,T.raised)end
+          P.cells(x,y,{{chip,hx(top and T.raised or T.select),hx(c)}})
+          P.text(x+2,y,a.name:sub(1,colW-2),T.text,top and T.raised or T.select)
+          P.hit(x,y,colW,1,function()v.search=nil;go(a.id)end)
+        end
+      end
+    end
+    if found and #found==0 then P.text(m.L,m.contentTop+1,"No apps match. Backspace edits the search.",T.muted)end
+    local aw=arrow(P,m,m.L,"up",function()v.view="home";v.search=nil;v.flyout=nil end)
+    scrollbar(P,m,(m.arrowTop+m.arrowH-1>=m.scrollRow)and m.L+aw+2 or m.L,v.appsPage,pages,function(p)v.appsPage=max(1,min(pages,p))end)
+    toast(P,s,m,v)
+    flyout(P,s,m,px,v)
+  end
+
   return S
 end
 ]=]},
@@ -7265,9 +7195,8 @@ return function(id, initial)
     elseif id=="memory"then self.cards={};for i=1,8 do self.cards[#self.cards+1]=i;self.cards[#self.cards+1]=i end;for i=16,2,-1 do local j=math.random(i);self.cards[i],self.cards[j]=self.cards[j],self.cards[i]end;self.matched={};self.revealed={}end
   end
   function app:draw(g)
-    if not ui.touch()then label(g,1,self.title,T.accent)end
-    local y=ui.touch()and 1 or 3
-    if not ui.touch()and g.h<12 then y=2 end
+    -- The Big Picture title bar already names the tool.
+    local y=g.h>=12 and 2 or 1
     if self.browser then browser(g,y)
     elseif id=="notes"or id=="journal"then
       local buttons={{"Browse notes",function()self.source=nil;self.text=""end}}
@@ -7428,13 +7357,15 @@ return function(id, initial)
     elseif id=="display"then
       local items={};for _,s in ipairs(ccos.screens())do items[#items+1]={label=s.name.."  "..s.role.."  "..s.w.."x"..s.h,screen=s}end
       paged(g,items,y,function(e)
-        if e.screen.kind=="term"then status("The computer remains a desktop")else
-          local roles={picture="mirror",mirror="desktop",desktop="panel",panel="off",off="picture"};ccos.setScreen(e.screen.name,roles[e.screen.role]);status("Changed "..e.screen.name)
+        if e.screen.kind=="term"then status("The computer follows its monitors")else
+          local roles={picture="panel",panel="off",off="picture"};ccos.setScreen(e.screen.name,roles[e.screen.role]or "picture");status("Changed "..e.screen.name)
         end
       end)
     elseif id=="palette"then
-      local order,themes=ccos.themes();local items={};for _,name in ipairs(order)do items[#items+1]={label=(ccos.config("theme")==name and "* "or "  ")..themes[name].name,name=name}end
-      paged(g,items,y,function(e)ccos.config("theme",e.name)end)
+      local starts,accents=ccos.colours();local items={}
+      for _,c in ipairs(starts)do items[#items+1]={label=(ccos.config("startColor")==c.id and "* "or "  ").."Start: "..c.name,key="startColor",id=c.id}end
+      for _,c in ipairs(accents)do items[#items+1]={label=(ccos.config("accentColor")==c.id and "* "or "  ").."Accent: "..c.name,key="accentColor",id=c.id}end
+      paged(g,items,y,function(e)ccos.config(e.key,e.id)end)
     elseif id=="soundtest"then
       local instruments={"harp","bell","chime","flute","guitar","pling","bass","snare"};self.instrument=self.instrument or 1
       y=actions(g,y,{{instruments[self.instrument],function()self.instrument=self.instrument%#instruments+1 end},{"Left",function()ccos.audio.note(instruments[self.instrument],12,-1,1.5)end},{"Center",function()ccos.audio.note(instruments[self.instrument],12,0,1.5)end},{"Right",function()ccos.audio.note(instruments[self.instrument],12,1,1.5)end}})
@@ -7714,9 +7645,12 @@ function G:button(x, y, label, fn, o)
   local bg = o.active and (o.activeBg or T.accent) or (o.bg or T.raised)
   local fg = o.active and (o.activeFg or T.bg) or (o.fg or T.text)
   if o.disabled then fg = T.muted end
-  self:fill(x, y, w, h, bg)
+  -- A one-row label only centres in an odd number of rows; an even height
+  -- keeps its full touch target but draws one row shorter.
+  local vh = h % 2 == 0 and h - 1 or h
+  self:fill(x, y, w, vh, bg)
   local lx = o.align == "left" and x + 1 or x + floor((w - #label) / 2)
-  self:text(lx, y + floor((h - 1) / 2), trunc(label, w), fg, bg)
+  self:text(lx, y + floor((vh - 1) / 2), trunc(label, w), fg, bg)
   if fn and not o.disabled then self:hit(x, y, x + w - 1, y + h - 1, fn) end
   return x + w
 end
@@ -7955,7 +7889,7 @@ return function(K,J,SHA,installer)
     U.pendingPrompt=false;U.promptOpen=true
     local version=U.available.version
     U.prompted=version
-    K.dialog({detached=true,screen=K.pictureScreen and K.pictureScreen()or K.homeScreen(),title="ccOS "..version.." available",text="Install update and restart? Your settings, files and API key are kept. Open windows will close.",buttons={"Later","Update & restart"},enterChoice=1,cb=function(i)U.promptOpen=false;if i==2 then U.install()end end})
+    K.dialog({detached=true,screen=K.pictureScreen and K.pictureScreen()or K.homeScreen(),title="ccOS "..version.." available",text="Install update and restart? Your settings, files and API key are kept. Open apps will close.",buttons={"Later","Update & restart"},enterChoice=1,cb=function(i)U.promptOpen=false;if i==2 then U.install()end end})
   end
   function U.maybePrompt()if U.pendingPrompt and U.available then U.prompt()end end
   function U.check(manual)
@@ -8036,7 +7970,7 @@ end
 local function unused(path)
   local n=0;local dest=path;while fs.exists(dest)do n=n+1;dest=path.."."..n end;return dest
 end
-page("Welcome. Set up your computer and monitor tools.",1)
+page("Welcome. Set up ccOS Big Picture.",1)
 cfg.deviceKind=device.kind
 cfg.user=field("Your name",cfg.user or os.getComputerLabel()or "Home"):sub(1,40)
 if cfg.user==""then cfg.user="Home"end
@@ -8052,11 +7986,11 @@ end
 page("Clock and appearance",3)
 cfg.clock24=field("Hour format: 12 or 24",cfg.clock24==true and "24"or "12")=="24"
 cfg.leadingZero=yes("Pad hours with a zero? (01:00 instead of 1:00)",cfg.leadingZero==true)
-local theme=field("Theme: ccos, midnight, sunset, forest, ocean, classic",cfg.theme=="aurora"and "ccos"or(cfg.theme or "ccos"))
-if not({ccos=true,midnight=true,sunset=true,forest=true,ocean=true,classic=true})[theme]then theme="ccos"end
-cfg.theme=theme
-if cfg.wallpaper=="aurora"then cfg.wallpaper="ccos"end
-cfg.wallpaper=cfg.wallpaper or "ccos"
+local COLOURS={"purple","indigo","blue","teal","green","olive","orange","red","magenta","charcoal"}
+local colour=field("Start colour: "..table.concat(COLOURS,", "),cfg.startColor or "purple"):lower()
+local known=false;for _,c in ipairs(COLOURS)do if c==colour then known=true end end
+cfg.startColor=known and colour or "purple"
+cfg.theme,cfg.wallpaper,cfg.desktop,cfg.fullSync,cfg.shadows=nil,nil,nil,nil,nil
 page("AI Agent (optional)",4)
 print("The agent uses OpenRouter with your own API key.")
 print("You can add or change it later in AI Agent > Settings.")
@@ -8073,7 +8007,7 @@ page("Ready to finish",5)
 print("User: "..cfg.user)
 print("Time zone: "..time.label(cfg))
 print("Clock: "..time.format(cfg,false))
-print(device.pocket and "Layout: pocket launcher"or "Monitor: Start tiles")
+print(device.pocket and "Layout: pocket launcher"or "Layout: Big Picture, "..cfg.startColor.." Start")
 local connected=(newKey and newKey~="")or existing
 print("AI: "..(connected and "connected"or "configure later"))
 print()

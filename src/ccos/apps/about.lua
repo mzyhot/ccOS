@@ -5,9 +5,9 @@ local gfx = ccos.gfx
 local floor = math.floor
 
 local SHORTCUTS = {
-  { "Alt+Space", "Command palette" }, { "Alt+Tab", "Next window" }, { "Alt+Enter", "Maximise" },
-  { "Alt+Left/Right", "Snap to a half" }, { "Alt+Down", "Minimise" }, { "Alt+Q", "Close the window" },
-  { "Alt+M", "Move to the other screen" }, { "Alt+T / Alt+F", "Terminal / Files" }, { "Alt+S", "Start menu" },
+  { "F2", "Back to Start" }, { "F1 / Alt+A", "AI Agent" }, { "Type on Start", "Search apps" },
+  { "Esc / Backspace", "Back out of a page" }, { "Left / Right", "Pan Start and lists" },
+  { "Enter", "Open the top search result" }, { "Ctrl+T", "Stop the app in front" },
 }
 
 local app = { title = "About", list = { scroll = 0 } }
@@ -21,7 +21,7 @@ function app:draw(g)
   end
   gfx.drawCells(term, floor((w - gfx.cellsWidth(logo)) / 2) + 1, 1, logo)
   local y = #logo + 1
-  g:center(y, "ccOS " .. ccos.version .. "  \183  a desktop for CC: Tweaked", T.muted, T.bg)
+  g:center(y, "ccOS " .. ccos.version .. "  \183  Big Picture for CC: Tweaked", T.muted, T.bg)
   local rows = {}
   rows[#rows + 1] = { head = "This computer" }
   for _, r in ipairs(ccos.sysinfo()) do rows[#rows + 1] = r end

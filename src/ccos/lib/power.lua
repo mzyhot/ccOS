@@ -1,20 +1,52 @@
--- Hallmark: quiet Windows 8.1-inspired power transition; ccOS tokens only.
--- Pre-emit critique: P5 H5 E4 S5 R5 V4. No fabricated progress messages.
+-- Windows 8.1-style progress ring: five dots chase round a circle on the
+-- Start colour, slowing as they gather at the top and spreading as they
+-- sweep the bottom. Used while booting and for the power transition. A
+-- plain status line; no fabricated progress.
 return function(K,gfx,T)
-  local P={duration=1.6,frameTime=0.08}
+  local P={duration=1.6,frameTime=0.06}
+  local floor,max,min=math.floor,math.max,math.min
+  local TAU=math.pi*2
+  -- The ring as teletext cells for a screen of W x H; r scales with it.
+  function P.ring(W,H,frame,bg,fg,limit)
+    local r=max(4,min(limit or 11,floor(min(W*2,H*3)/8)))
+    local dot=r>=8 and 2 or 1
+    local size=2*r+dot+2
+    local cw,ch=size+size%2,size+(3-size%3)%3
+    local cv=gfx.canvas(cw,ch,bg)
+    local c=(size+1)/2
+    local t=frame*P.frameTime
+    for i=0,4 do
+      local u=(t/1.25-i*0.09)%1
+      local a=u-0.11*math.sin(TAU*u)
+      local x=floor(c+math.sin(TAU*a)*r-(dot-1)/2+0.5)
+      local y=floor(c-math.cos(TAU*a)*r-(dot-1)/2+0.5)
+      for dy=0,dot-1 do for dx=0,dot-1 do cv.set(x+dx,y+dy,fg)end end
+    end
+    return gfx.cells(cv.rows(),bg),cw/2
+  end
+  -- A light heading line when the screen is big enough, else plain text.
+  function P.label(target,W,y,text,bg,fg)
+    local M=gfx.metro
+    if M and W>=60 and M.textWidth(text)/2<=W-4 then
+      local lc=M.markCells(M.textRows(text),gfx.HEX[fg],gfx.HEX[bg],0,1)
+      gfx.drawCells(target,max(1,floor((W-#lc[1][1])/2)+1),y,lc)
+      return 3
+    end
+    target.setBackgroundColor(bg);target.setTextColor(fg)
+    target.setCursorPos(max(1,floor((W-#text)/2)+1),y);target.write(text:sub(1,W))
+    return 1
+  end
   function P.draw(target,W,H,frame,kind)
     target.setCursorBlink(false);target.setBackgroundColor(T.select);target.setTextColor(T.text);target.clear()
-    local size=math.min(18,W-2);local cv=gfx.canvas(size,15,gfx.HEX[T.select])
-    for i=0,4 do
-      local angle=(frame-i)*math.pi/6
-      local x=math.floor(size/2+math.cos(angle)*5+0.5)+1
-      local y=math.floor(7+math.sin(angle)*5+0.5)+1
-      cv.set(x,y,gfx.HEX[i<3 and T.text or T.muted])
-    end
-    local cells=gfx.cells(cv.rows(),gfx.HEX[T.select]);local top=math.max(1,math.floor(H/2)-4)
-    gfx.drawCells(target,math.floor((W-gfx.cellsWidth(cells))/2)+1,top,cells)
+    local bg,fg=gfx.HEX[T.select],gfx.HEX[T.text]
+    local cells,cw=P.ring(W,H,frame,bg,fg)
     local label=kind=="shutdown"and "Shutting down"or "Restarting"
-    target.setCursorPos(math.max(1,math.floor((W-#label)/2)+1),math.min(H,top+#cells+1));target.write(label:sub(1,W))
+    local labelRows=(W>=60 and H>=24)and 3 or 1
+    local top=max(1,floor((H-#cells-1-labelRows)/2)+1)
+    gfx.drawCells(target,floor((W-cw)/2)+1,top,cells)
+    local ly=min(H,top+#cells+1)
+    if labelRows==3 then P.label(target,W,ly,label,T.select,T.text)
+    else target.setCursorPos(max(1,floor((W-#label)/2)+1),ly);target.write(label:sub(1,W))end
   end
   function P.play(kind)
     for frame=1,math.ceil(P.duration/P.frameTime)do

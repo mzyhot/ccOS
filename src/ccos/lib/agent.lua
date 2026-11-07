@@ -167,9 +167,9 @@ return function(K, J)
     end
     local ok,err=K.validateSetting(a.name,value);assert(ok,err);K.api.config(a.name,value);return {name=a.name,value=K.cfg[a.name]}
   end)
-  add("set_screen","Change a monitor role or text scale",{name=S("Monitor name"),role=S("Screen role",{"picture","desktop","mirror","panel","off"}),scale=N("Text scale 0.5 to 5"),auto_scale=B("Use responsive automatic text scale")},{"name","role"},true,function(a)
-    assert(a.name~="term","Computer is always a desktop");local found=false;for _,s in ipairs(K.api.screens())do if s.name==a.name then found=true end end;assert(found,"Unknown screen")
-    assert(({picture=true,desktop=true,mirror=true,panel=true,off=true})[a.role],"Invalid role")
+  add("set_screen","Change a monitor role (Big Picture, info panel or off) or text scale",{name=S("Monitor name"),role=S("Screen role",{"picture","panel","off"}),scale=N("Text scale 0.5 to 5"),auto_scale=B("Use responsive automatic text scale")},{"name","role"},true,function(a)
+    assert(a.name~="term","The computer follows its monitors");local found=false;for _,s in ipairs(K.api.screens())do if s.name==a.name then found=true end end;assert(found,"Unknown screen")
+    assert(({picture=true,panel=true,off=true})[a.role],"Invalid role")
     if a.scale then assert(a.scale>=0.5 and a.scale<=5 and a.scale*2==floor(a.scale*2),"Invalid scale")end
     K.api.setScreen(a.name,a.role,a.auto_scale and "auto"or a.scale);return K.api.screens()
   end)
@@ -179,7 +179,7 @@ return function(K, J)
   end)
   add("run_command","Run a CraftOS or ccOS command in a real computer terminal. Inspect output with read_window.",{command=S("Command line")},{"command"},true,function(a)
     assert(type(a.command)=="string" and #a.command<=4096,"Invalid command");local s;for _,x in ipairs(K.screens)do if x.name=="term"then s=x end end
-    return {process=K.runCommand(a.command,s).id}
+    return {process=K.runCommand(a.command,s,true).id}
   end)
   add("run_program","Run an existing Lua file in a computer terminal",{path=S("Lua program path")},{"path"},true,function(a)
     local p=path(a.path);assert(fs.exists(p)and not fs.isDir(p),"No program at that path")
@@ -214,17 +214,15 @@ return function(K, J)
   end)
   add("print_file","Print a text file on the connected printer",{path=S("Text file")},{"path"},true,function(a)local p=path(a.path);local ok,why=K.api.printText(fs.getName(p),read(p,32768));assert(ok,why);return {pages=why}end)
   add("get_time","Read the configured clock and time-zone policy",{}, {},false,function()return {time=K.clockText(true),date=K.api.date("%Y-%m-%d"),timezone=K.cfg.timezone,clock24=K.cfg.clock24,leadingZero=K.cfg.leadingZero,available_zones=J.array(K.clock.zones),offset_minutes=K.clock.offset(K.cfg)}end)
-  add("set_favorites","Change desktop icons or monitor favorites using installed app ids",{target=S("Which surface",{"desktop","monitor","both"}),ids={type="array",items={type="string"},description="Ordered app ids"}},{"target","ids"},true,function(a)
+  add("set_favorites","Change the apps pinned to Start using installed app ids",{ids={type="array",items={type="string"},description="Ordered app ids"}},{"ids"},true,function(a)
     assert(type(a.ids)=="table"and #a.ids<=100,"Expected at most 100 app ids")
     local ids,seen={},{}
     for _,id in ipairs(a.ids)do
       local valid=false;for _,app in ipairs(K.APPS)do if app.id==id and not app.hidden then valid=true end end
       assert(valid,"Unknown visible app: "..tostring(id));if not seen[id]then ids[#ids+1]=id;seen[id]=true end
     end
-    assert(a.target=="desktop"or a.target=="monitor"or a.target=="both","Invalid target")
-    if a.target~="monitor"then K.api.config("desktop",ids)end
-    if a.target~="desktop"then K.api.config("monitorFavorites",ids)end
-    return {target=a.target,ids=J.array(ids)}
+    K.api.config("monitorFavorites",ids)
+    return {ids=J.array(ids)}
   end)
   A.tools=tools
   function A.execute(name,args,skipReview)
