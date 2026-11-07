@@ -1,4 +1,4 @@
-# ccOS 2.1.1
+# ccOS 2.1.2
 
 A desktop and compact touch interface for advanced CC: Tweaked computers. ccOS includes a categorized tool catalog, stereo audio, printer/disk integration, configurable clocks and an OpenRouter agent with native operating-system tools.
 
@@ -17,7 +17,7 @@ Or copy the single root **setup.lua** onto the computer:
 3. Follow the five setup pages: profile, time zone, clock/appearance, optional OpenRouter connection, and finish.
 4. ccOS preserves an existing startup script as `startup.before-ccos.lua` (numbered backups if needed), then automatically restarts into the OS.
 
-`setup.lua` contains all **31** runtime files and libraries. It installs the modules into `/ccos`, verifies file contents, and then starts `/ccos/setup.lua`. No third-party Lua package downloads are required. `dist/setup.lua` is the same installer; `dist/install.lua` is a compatibility copy.
+`setup.lua` contains all **32** runtime files and libraries. It installs the modules into `/ccos`, verifies file contents, and then starts `/ccos/setup.lua`. No third-party Lua package downloads are required. `dist/setup.lua` is the same installer; `dist/install.lua` is a compatibility copy.
 
 Reinstallation skips identical files and preserves configuration, notes, tool data and the saved key. Changed code is staged before replacement and restored if installation fails. Setup checks free space before making changes. Legacy `/aurora/config.cfg` preferences and tool data are imported when there is no ccOS configuration; the old installation and user files are retained. Theme/wallpaper names are migrated. Existing startup scripts are kept.
 
@@ -26,13 +26,15 @@ To repeat only the configuration wizard later, run `/ccos/setup.lua`. To start m
 ## Screens and navigation
 
 - **Computer in Big Picture:** a dedicated input console. When a monitor tool asks for text, type it on the computer and press Enter or tap the monitor confirmation. When the monitor shows AI Agent, type and send messages from the computer. API-key entry is masked. The desktop is hidden in this mode.
-- **Computer in Full Sync:** windowed desktop, categorized Start menu, command palette, terminals and AI chat. The top monitor mirrors it, including menus and windows; monitor taps map to desktop clicks.
+- **Computer in Full Sync:** windowed desktop, categorized Start menu, command palette, terminals and AI chat. The top monitor fills its whole display with the same desktop, including menus and windows; monitor taps use the matching scale to map to desktop clicks.
 - **Largest advanced monitor:** compact `picture` mode. A one-row header and playback bar surround the tool workspace. Categories occupy a slim sidebar; tiny monitors use a category switcher. The old “Big Screen” heading is gone.
 - **Other monitors:** information panels for time, playback, notifications and hardware.
 
 Monitor categories: **Favorites, Files, Time, Media, Math, Text, Developer, System, Games, AI**. The catalog has 63 visible entries, including 45 new utilities. Monitor controls use taps and pagination. Text tools use prompts with a read-only monitor preview and input on the computer. Desktop-only tools offer to switch to Full Sync. The monitor has no keyboard composer or typing cursor. Fullscreen monitor apps have a close button and a Tools button.
 
 Music, files, printers, speakers, settings and agent activity are shared across screens. Files on the monitor opens folders with one tap, previews text up to 32 KB and prints previews. Restart and shutdown use a confirmation tap.
+
+Use **Start > Big Picture** to open the monitor tool catalog and the computer input console. Open desktop windows are kept for your return to Full Sync. The Start button uses a centred, symmetric mark at every taskbar height. Escape closes desktop menus, popups and the command palette, or cancels a dialog.
 
 Use monitor **Settings > Full Sync with desktop**, the input console **Full Sync** button, or desktop **Settings > Screens > Full Sync** to switch modes. Choose **Big Picture** in desktop Settings to return to the touch interface and input console. The chosen mode is saved.
 
@@ -47,7 +49,7 @@ screen monitor_0 off
 screen monitor_0 picture 1
 ```
 
-`mirror` is a live centred copy of the computer, with touch-to-click mapping. `desktop` is a separate windowed desktop. Automatic scale is available in Settings.
+`mirror` fills the entire monitor with a live view of the computer. The terminal-cell layout and background colours stretch in both axes. Each text glyph is centred once in its scaled cell to keep letters readable; artwork fills the scaled cells. Text spacing therefore expands with the display. Touches and the cursor share the same transform, including after a monitor resize. `desktop` is a separate windowed desktop. Automatic scale is available in Settings.
 
 ## New utilities
 
@@ -73,6 +75,8 @@ Configure time during setup, in **Settings > Clock & panel**, or in the monitor'
 - Optional leading zero and seconds.
 - Local/server time, UTC, fixed UTC offsets from -12:00 through +14:00 (15-minute controls), and named zones.
 - Named zones: America/Chicago, New_York, Denver and Los_Angeles; Europe/London and Berlin; Asia/Kolkata and Tokyo; Australia/Sydney. US, European and Sydney daylight-saving transitions are calculated by the shared clock module.
+
+The small clock panel draws AM/PM as a clear native-font label below the large digits. The bitmap M, N and W also have distinct shapes. Notification timestamps reserve their full width before notification text.
 
 Desktop, monitor, panels, Clock, world clocks, notification timestamps and print-job times share the same clock policy. Named zones use current recurring DST rules; this is a bundled set of zones, not a full historical IANA database. Fixed offsets cover other regions.
 
@@ -154,6 +158,7 @@ src/ccos/lib/json.lua      bundled JSON codec
 src/ccos/lib/encoding.lua  UTF-8 / terminal display and input boundary
 src/ccos/lib/picture.lua   compact monitor workspace
 src/ccos/lib/input.lua     computer input bridge for monitor prompts
+src/ccos/lib/mirror.lua    full-monitor layout and touch transforms
 src/ccos/lib/updater.lua   checks, approval prompt and verified downloads
 src/ccos/lib/install.lua   shared transactional file installer
 src/ccos/lib/sha256.lua    bundled checksum implementation
@@ -175,6 +180,6 @@ lua harness.lua ../src picture screens.html
 python3 ../tools/render.py screens.html shots
 ```
 
-The check runner compiles every Lua source and runs 51 core assertions, 42 tool behavior assertions and 37 simulated runtime scenarios. Coverage includes all utility rendering, actual tool controls/persistence, timezone and DST boundaries, Start and mirror input, different monitor sizes, agent multi-round tool use, action approval/denial, cancellation, late responses, authentication errors, malformed arguments, setup/restart, offline setup, reinstall, low space and rollback. Installer tests compare every installed file to source. Update tests cover approval, decline, unchanged releases, offline checks, corrupt files, rollback, restart and preserved data. Input tests cover monitor prompts, AI chat, masked key entry and switching to Full Sync. OpenRouter tests verify request parameters, provider-error details, filtered model selection, Unicode replies on desktop/monitor, Unicode input transport and preserved Unicode file contents through action review.
+The check runner compiles every Lua source and runs 64 core assertions, 42 tool behavior assertions and 39 simulated runtime scenarios. Coverage includes all utility rendering, actual tool controls/persistence, timezone and DST boundaries, Start and mirror input, different monitor sizes, agent multi-round tool use, action approval/denial, cancellation, late responses, authentication errors, malformed arguments, setup/restart, offline setup, reinstall, low space and rollback. Installer tests compare every installed file to source. Update tests cover approval, decline, unchanged releases, offline checks, corrupt files, rollback, restart and preserved data. Input tests cover monitor prompts, AI chat, masked key entry and switching to Full Sync. Full Sync checks cover every output-cell background, preserved glyphs, edge/corner coverage, touch app launch, live resizing and Start-to-Big-Picture transitions. Panel AM/PM labels and centred Start geometry are checked. OpenRouter tests verify request parameters, provider-error details, filtered model selection, Unicode replies on desktop/monitor, Unicode input transport and preserved Unicode file contents through action review.
 
 OpenRouter requests are mocked in tests; no real API key or paid inference is used. Rendering is based on terminal cell captures, not a real Minecraft client. A Minecraft/live-provider check remains necessary on the target computer.

@@ -364,7 +364,7 @@ local function readReal(path)
   f:close()
   return s
 end
-local SOURCE_FILES = { "ccos/apps/about.lua", "ccos/apps/agent.lua", "ccos/apps/calc.lua", "ccos/apps/clock.lua", "ccos/apps/files.lua", "ccos/apps/music.lua", "ccos/apps/notifications.lua", "ccos/apps/piano.lua", "ccos/apps/print.lua", "ccos/apps/settings.lua", "ccos/apps/tasks.lua", "ccos/apps/tools.lua", "ccos/apps/viewer.lua", "ccos/kernel.lua", "ccos/lib/agent.lua", "ccos/lib/audio.lua", "ccos/lib/catalog.lua", "ccos/lib/encoding.lua", "ccos/lib/gfx.lua", "ccos/lib/input.lua", "ccos/lib/install.lua", "ccos/lib/json.lua", "ccos/lib/picture.lua", "ccos/lib/sha256.lua", "ccos/lib/suite.lua", "ccos/lib/time.lua", "ccos/lib/ui.lua", "ccos/lib/updater.lua", "ccos/setup.lua", "ccos/update.lua" }
+local SOURCE_FILES = { "ccos/apps/about.lua", "ccos/apps/agent.lua", "ccos/apps/calc.lua", "ccos/apps/clock.lua", "ccos/apps/files.lua", "ccos/apps/music.lua", "ccos/apps/notifications.lua", "ccos/apps/piano.lua", "ccos/apps/print.lua", "ccos/apps/settings.lua", "ccos/apps/tasks.lua", "ccos/apps/tools.lua", "ccos/apps/viewer.lua", "ccos/kernel.lua", "ccos/lib/agent.lua", "ccos/lib/audio.lua", "ccos/lib/catalog.lua", "ccos/lib/encoding.lua", "ccos/lib/gfx.lua", "ccos/lib/input.lua", "ccos/lib/install.lua", "ccos/lib/json.lua", "ccos/lib/mirror.lua", "ccos/lib/picture.lua", "ccos/lib/sha256.lua", "ccos/lib/suite.lua", "ccos/lib/time.lua", "ccos/lib/ui.lua", "ccos/lib/updater.lua", "ccos/setup.lua", "ccos/update.lua" }
 for _, rel in ipairs(SOURCE_FILES) do
   local s = readReal(SRC .. "/" .. rel)
   if not s then error("missing " .. rel) end
@@ -659,6 +659,7 @@ local function makeMonitor(bw, bh, colour)
     end
   end
   function m.getTextScale() return scale end
+  function m.setBlocks(w,h)bw,bh=w,h;m.resize(size(scale));push("monitor_resize",m._name)end
   return m
 end
 
@@ -811,6 +812,10 @@ end
 -- Text of a screen, for finding things to tap.
 local function findText(key, text, nth, fromBottom)
   local t = SCREENS[key]._t
+  local mirrored=false
+  if key=="main"and ccos then for _,sc in ipairs(ccos.screens())do if sc.name=="monitor_0"and sc.role=="mirror"then mirrored=true end end end
+  local display=t
+  if mirrored then t=computer._t end
   local n = 0
   for y = fromBottom and t.h or 1, fromBottom and 1 or t.h, fromBottom and -1 or 1 do
     local from = 1
@@ -818,10 +823,35 @@ local function findText(key, text, nth, fromBottom)
       local x = t.text[y]:find(text, from, true)
       if not x then break end
       n = n + 1
-      if n == (nth or 1) then return x, y end
+      if n == (nth or 1) then
+        if mirrored then
+          local xx=floor((math.ceil((x-1)*display.w/t.w)+1+math.ceil(x*display.w/t.w))/2)
+          local yy=floor((math.ceil((y-1)*display.h/t.h)+1+math.ceil(y*display.h/t.h))/2)
+          return xx,yy
+        end
+        return x,y
+      end
       from = x + 1
     end
   end
+end
+
+-- Verify the entire physical monitor against the desktop transform, including
+-- its first/last columns (the old centred mirror left wallpaper there).
+local function stretched(why)
+  local m,t=mainMon._t,computer._t
+  for y=1,m.h do
+    local sy=floor((y-1)*t.h/m.h)+1
+    for x=1,m.w do
+      local sx=floor((x-1)*t.w/m.w)+1
+      if m.bgs[y]:sub(x,x)~=t.bgs[sy]:sub(sx,sx)then fail("Full Sync background mismatch: "..why.." at "..x..","..y.." monitor="..m.w.."x"..m.h.." desktop="..t.w.."x"..t.h.." got="..m.bgs[y]:sub(x,x).." want="..t.bgs[sy]:sub(sx,sx));return end
+    end
+  end
+  for sy=1,t.h do for sx=1,t.w do
+    local x=floor((math.ceil((sx-1)*m.w/t.w)+1+math.ceil(sx*m.w/t.w))/2)
+    local y=floor((math.ceil((sy-1)*m.h/t.h)+1+math.ceil(sy*m.h/t.h))/2)
+    if m.w>=t.w and m.h>=t.h and m.text[y]:sub(x,x)~=t.text[sy]:sub(sx,sx)then fail("Full Sync glyph mismatch: "..why);return end
+  end end
 end
 
 local function tap(key, text, opts)
@@ -995,6 +1025,32 @@ elseif SCENARIO == "picture" or SCENARIO == "picture-small" or SCENARIO == "pict
   end
   step(2,alt("a"));step(10,expect("term","Message AI Agent","computer input bridge"));step(2,noTyping)
   step(2,function()ccos.exit()end)
+elseif SCENARIO=="desktop-polish"then
+  writeFile("ccos/config.cfg",textutils.serialize({screenLayout=2,fullSync=true,autoUpdates=false,timezone="fixed",utcOffset=-720,clock24=false,idle=0}))
+  step(100,function()
+    stretched("polished desktop")
+    local found=false;for _,line in ipairs(panelMon._t.text)do if line:match("^%s*AM%s*$")then found=true end end;if not found then fail("Panel has no native AM label")end
+    -- The Start mark is symmetric about the centre of the 5-cell button.
+    local t=computer._t;local pixels={}
+    for x=1,5 do
+      local code=t.text[t.h]:byte(x)-128;local fg=t.fgs[t.h]:sub(x,x);local bg=t.bgs[t.h]:sub(x,x)
+      for py=1,3 do for px=1,2 do local bit=(py-1)*2+px-1;local on=bit<5 and floor(code/2^bit)%2==1;pixels[(py-1)*10+(x-1)*2+px]=on and fg or bg end end
+    end
+    for y=1,3 do for x=1,10 do if pixels[(y-1)*10+x]~=pixels[(y-1)*10+11-x]then fail("Start mark not horizontally centred")end end end
+    for x=1,10 do if pixels[x]~=pixels[20+x]then fail("Start mark not vertically centred")end end
+    capture("Polished Full Sync desktop")
+  end)
+  step(2,alt("s"));step(5,expect("term","Big Picture","dedicated Start mode action"))
+  step(2,function()capture("Start mode action",{"term","main"})end)
+  step(2,keyPress("escape"));step(3,function()if findText("term","Big Picture")then fail("Escape did not close Start")end end)
+  step(2,alt("s"));step(4,tap("main","Big Picture"))
+  step(8,function()
+    if ccos.pictureScreenName()~="monitor_0"or ccos.config("fullSync")then fail("Start did not switch the OS into Big Picture")end
+    if not findText("term","Monitor input")or not findText("main","Favorites")then fail("Big Picture did not show its home/input console")end
+    capture("Big Picture from Start")
+  end)
+  step(2,tap("term","Full Sync"));step(8,function()stretched("return from Big Picture");ccos.config("timezone","fixed");ccos.config("utcOffset",0)end)
+  step(25,function()local found=false;for _,line in ipairs(panelMon._t.text)do if line:match("^%s*PM%s*$")then found=true end end;if not found then fail("Panel has no native PM label")end;capture("Clear PM panel",{"panel"});ccos.exit()end)
 elseif SCENARIO=="sync-input"then
   step(100,function()capture("Big Picture input console");if findText("term","Terminal")then fail("Desktop leaked into input console")end;ccos.launch("notes",{},"monitor_0")end)
   step(8,tap("main","New"))
@@ -1008,7 +1064,7 @@ elseif SCENARIO=="sync-input"then
   step(5,tap("main","Full Sync with desktop"))
   step(8,function()
     local roles=ccos.screens();if roles[2].role~="mirror"then fail("Full Sync did not select mirror")end
-    local m,t=mainMon._t,computer._t;local ox=floor((m.w-t.w)/2);for y=1,t.h do if m.text[y]:sub(ox+1,ox+t.w)~=t.text[y]then fail("Full Sync differs at row "..y);break end end
+    stretched("mode switch")
     local cfg=textutils.unserialize(node("ccos/config.cfg").data);if not cfg.fullSync then fail("Full Sync not persisted")end
     capture("Full Sync desktop")
     ccos.setFullSync(false)
@@ -1064,7 +1120,7 @@ elseif SCENARIO=="agent-models"then
 elseif SCENARIO=="update-standalone"then
   writeFile("ccos/config.cfg",textutils.serialize({screenLayout=2,user="Preserved",autoUpdates=false}))
   writeFile("ccos/private/openrouter.cfg","sk-or-preserved")
-  local bundled=readReal(SRC.."/../setup.lua"):gsub('local VERSION = "2.1.1"','local VERSION = "2.2"')
+  local bundled=readReal(SRC.."/../setup.lua"):gsub('local VERSION = "2.1.2"','local VERSION = "2.2"')
   http={get=function(opts)
     assert(opts.url=="https://raw.githubusercontent.com/mzyhot/ccOS/main/setup.lua")
     return {read=function(n)return bundled:sub(1,n)end,close=function()end}
@@ -1098,16 +1154,16 @@ elseif SCENARIO:match("^updates%-")then
     if mode=="later"then tap("main","Later")()else tap("main","Update & restart")()end
   end)
   if mode=="later"then
-    step(5,function()if ccos.version~="2.1.1"then fail("Declined update changed version")end;ccos.exit()end)
+    step(5,function()if ccos.version~="2.1.2"then fail("Declined update changed version")end;ccos.exit()end)
   elseif mode=="rollback"then
     step(500,function()
-      if node("ccos/kernel.lua").data~=oldKernel or ccos.version~="2.1.1"then fail("Failed update did not roll back")end
+      if node("ccos/kernel.lua").data~=oldKernel or ccos.version~="2.1.2"then fail("Failed update did not roll back")end
       if not ccos.updates.status:find("rolled back",1,true)then fail("Update rollback not reported")end
       for _,name in ipairs(fs.list("/"))do if name:find(".ccos-stage-",1,true)then fail("Update left staging files")end end
       ccos.exit()
     end)
   elseif mode=="corrupt"then
-    step(200,function()if ccos.version~="2.1.1"or not node("ccos/kernel.lua").data:find('local VERSION = "2.1.1"',1,true)then fail("Corrupt update changed code")end;if not ccos.updates.status:find("Checksum mismatch",1,true)then fail("Corruption not reported")end;ccos.exit()end)
+    step(200,function()if ccos.version~="2.1.2"or not node("ccos/kernel.lua").data:find('local VERSION = "2.1.2"',1,true)then fail("Corrupt update changed code")end;if not ccos.updates.status:find("Checksum mismatch",1,true)then fail("Corruption not reported")end;ccos.exit()end)
   elseif mode=="auto"or mode=="install"then
     step(500,function()
       if ccos.version~="2.2"then fail("Verified update did not restart into new OS")end
@@ -1210,27 +1266,15 @@ elseif SCENARIO == "desktop-menu" then
   step(2, alt("space"))
   step(2, typeText("exit"))
   step(2, keyPress("enter"))
-elseif SCENARIO == "mirror" then
+elseif SCENARIO == "mirror"or SCENARIO=="mirror-resize"then
   writeFile("ccos/config.cfg", '{["screenLayout"]=2,["screens"]={["monitor_0"]={["role"]="mirror"}}}')
-  local function sameAsComputer(why)
-    return function()
-      local m, t = mainMon._t, computer._t
-      local ox, oy = floor((m.w - t.w) / 2), floor((m.h - t.h) / 2)
-      for y = 1, t.h do
-        local row = m.text[y + oy]:sub(ox + 1, ox + t.w)
-        if row ~= t.text[y] or m.bgs[y + oy]:sub(ox + 1, ox + t.w) ~= t.bgs[y] then
-          fail(("mirror row %d differs from the computer (%s)"):format(y, why))
-          return
-        end
-      end
-    end
-  end
+  local function sameAsComputer(why)return function()stretched(why)end end
   step(30, function() capture("Mirror: booting", { "main" }) end)
   step(80, function() capture("Mirror: desktop", { "main", "term" }) end)
   step(2, sameAsComputer("desktop"))
   step(2, function()
     local m, t = mainMon._t, computer._t
-    push("monitor_touch", "monitor_0", floor((m.w - t.w) / 2) + 2, floor((m.h - t.h) / 2) + t.h)
+    push("monitor_touch","monitor_0",math.ceil(2*m.w/t.w),m.h)
   end)
   step(6, function() capture("Mirror: start menu by touch", { "main" }) end)
   step(2, expect("term", "Type to search", "start menu opened on the computer by a tap on the monitor"))
@@ -1246,9 +1290,14 @@ elseif SCENARIO == "mirror" then
   step(2, keyPress("enter"))
   step(10, function() capture("Mirror: typing on the computer", { "main" }) end)
   step(2, sameAsComputer("terminal"))
-  step(2, alt("space"))
-  step(2, typeText("exit"))
-  step(2, keyPress("enter"))
+  if SCENARIO=="mirror-resize"then
+    step(2,function()mainMon.setBlocks(4,4)end)
+    step(8,function()stretched("monitor resized");capture("Full Sync resized",{"main","term"})end)
+    step(2,alt("s"));step(5,tap("main","Big Picture"))
+    step(8,expect("term","Monitor input","resized monitor mode action maps to Start"))
+    step(2,function()ccos.exit()end)
+  end
+  if SCENARIO~="mirror-resize"then step(2,alt("space"));step(2,typeText("exit"));step(2,keyPress("enter"))end
 elseif SCENARIO=="setup-rollback"or SCENARIO=="setup-no-space"then
   writeFile("setup.lua",readReal(SRC.."/../setup.lua"))
   writeFile("ccos/kernel.lua","-- previous kernel")

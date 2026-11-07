@@ -1,5 +1,5 @@
--- ccOS 2.1.1 setup. Run setup, or use --update to preserve setup preferences.
-local VERSION = "2.1.1"
+-- ccOS 2.1.2 setup. Run setup, or use --update to preserve setup preferences.
+local VERSION = "2.1.2"
 local updateMode = ... == "--update"
 local FILES = {
   {"ccos/apps/about.lua",[=[
@@ -1733,7 +1733,7 @@ ui.run(app)
 ]=]},
   {"ccos/kernel.lua",[=[
 --[[
-  ccOS                                                        v2.1.1
+  ccOS                                                        v2.1.2
 
   A windowed desktop for CC: Tweaked across every screen it can find:
   the computer's desktop and advanced monitors as touch-only media hubs,
@@ -1745,7 +1745,7 @@ ui.run(app)
   apps add the `ccos` API on top.
 ]]
 
-local VERSION = "2.1.1"
+local VERSION = "2.1.2"
 local ROOT = "/ccos"
 local CONFIG_PATH = ROOT .. "/config.cfg"
 local nativeTerm = term.current()
@@ -1820,6 +1820,7 @@ local json = loadModule(ROOT .. "/lib/json.lua")
 local sha256=loadModule(ROOT.."/lib/sha256.lua")
 local encoding=loadModule(ROOT.."/lib/encoding.lua")
 K.encoding=encoding
+local mirror=loadModule(ROOT.."/lib/mirror.lua")
 local installer=loadModule(ROOT.."/lib/install.lua")
 K.clock, K.catalog, K.json = clock, catalog, json
 
@@ -2764,9 +2765,15 @@ local function drawTaskbar(s)
   fill(1, y0, s.w, th, T.surface)
   -- Start button
   local wide = s.w >= 70
-  local startW = wide and 11 or 5
+  local startW = wide and 7 or 5
   fill(1, y0, startW, th, s.menu and T.accent2 or T.accent)
-  put(1, my, centre(wide and "\4 ccOS" or "\4", startW), T.bg, s.menu and T.accent2 or T.accent)
+  local markH=th>=3 and 5 or 3
+  local pixels=gfx.canvas(startW*2,th*3,HEX[s.menu and T.accent2 or T.accent])
+  local px,py=startW-2,floor((th*3-markH)/2)+1
+  for yy=1,markH do for xx=1,6 do
+    if xx==3 or xx==4 or yy==ceil(markH/2)then pixels.set(px+xx-1,py+yy-1,HEX[T.bg])end
+  end end
+  gfx.drawCells(B,1,y0,gfx.cells(pixels.rows(),HEX[s.menu and T.accent2 or T.accent]))
   hit(1, y0, startW, s.h, function() K.toggleStart(s) end)
   -- Clock and tray, right to left
   local rx = s.w
@@ -2843,7 +2850,7 @@ local function drawStartMenu(s)
   local tileW, tileH = floor((mw - 2) / cols), 3
   local maxH = workHeight(s) - 1
   local gridRows = ceil(#apps / cols)
-  local mh = min(maxH, 6 + gridRows * tileH)
+  local mh = min(maxH, 7 + gridRows * tileH)
   local x0, y0 = 1, s.h - th - mh + 1
   hit(1, 1, s.w, s.h, function() s.menu = nil end)
   fill(x0, y0, mw, mh, T.surface)
@@ -2861,7 +2868,7 @@ local function drawStartMenu(s)
   button(x0+mw-9,y0+2," < ",T.text,T.raised,function()m.category=categories[(index-2)%#categories+1];m.scroll=0 end)
   button(x0+mw-5,y0+2," > ",T.text,T.raised,function()m.category=categories[index%#categories+1];m.scroll=0 end)
   local gy = y0 + 3
-  local visible = max(1, floor((mh - 6) / tileH))
+  local visible = max(1, floor((mh - 7) / tileH))
   m.scroll = clamp(m.scroll or 0, 0, max(0, gridRows - visible))
   if gridRows > visible then
     hit(x0, gy, x0 + mw - 1, gy + visible * tileH - 1, nil, {
@@ -2888,6 +2895,17 @@ local function drawStartMenu(s)
     button(x0 + 1, py, " < Prev ", T.text, T.raised, function() m.scroll = max(0, m.scroll - visible) end)
     button(x0 + mw - 9, py, " Next > ", T.text, T.raised, function() m.scroll = min(gridRows - visible, m.scroll + visible) end)
   end
+  -- A dedicated mode row keeps the action separate from app pagination/power.
+  local modeY=y0+mh-3
+  local label=" Big Picture "
+  local modeX=x0+floor((mw-#label)/2)
+  if K.primaryMonitorName then
+    button(modeX,modeY,label,T.bg,T.accent,function()
+      s.menu=nil;K.palette=nil
+      local ok=K.setFullSync(false)
+      if ok then local target=K.pictureScreen();if target then target.picture={view="home",page=1,path="/",category="Favorites"}end;markAll()end
+    end)
+  else put(modeX,modeY,label,T.muted,T.surface)end
   -- Power row
   local py = y0 + mh - 1
   fill(x0, py, mw, 1, T.raised)
@@ -3239,7 +3257,7 @@ end
 
 
 local function bigClock(s, y, h)
-  local t = clockText(false)
+  local t=clockText(false):gsub(" [AP]M$","")
   local scale = 1
   for k = 4, 1, -1 do
     local cells = gfx.pixelText(t, k, "0", "f")
@@ -3275,6 +3293,8 @@ local function drawPanel(s)
       put(2, 3, gameClock(), T.accent, T.bg)
     else
       local used = bigClock(s, 1, s.h - 4)
+      local suffix=clockText(false):match(" ([AP]M)$")
+      if suffix then put(floor((s.w-#suffix)/2)+1,used+1,suffix,T.accent,T.bg)end
       local date = clock.date(K.cfg, "%A %d %B")
       put(floor((s.w - #date) / 2) + 1, used + 2, date, T.muted, T.bg)
       local game = gameClock()
@@ -3319,8 +3339,10 @@ local function drawPanel(s)
     for i = 1, #K.notifs do
       if y > s.h - 1 then break end
       local n = K.notifs[i]
-      put(2, y, clock.format(K.cfg, false, floor(n.t / 1000)), T.muted, T.bg)
-      put(8, y, trunc(n.title .. (n.text ~= "" and (" - " .. n.text) or ""), s.w - 9), T.text, T.bg)
+      local stamp=clock.format(K.cfg,false,floor(n.t/1000))
+      local nx=2+#stamp+2
+      put(2,y,stamp,T.muted,T.bg)
+      put(nx,y,trunc(n.title..(n.text~=""and(" - "..n.text)or ""),s.w-nx),T.text,T.bg)
       y = y + 1
     end
     if #K.notifs == 0 then put(2, 2, "Nothing new", T.muted, T.bg) end
@@ -3456,53 +3478,21 @@ local function compose(s)
   end
 end
 
--- A mirror shows the computer's screen centred on a monitor, framed by
--- the wallpaper; taps on it are clicks on the computer (see dispatch).
+-- Full Sync fills the monitor and shares one transform with touch input.
 local function presentMirror(m, src)
-  m.dirty = false
-  local ox, oy = max(0, floor((m.w - src.w) / 2)), max(0, floor((m.h - src.h) / 2))
-  m.ox, m.oy = ox, oy
-  local key = "mirror" .. K.cfg.wallpaper .. m.w .. "x" .. m.h
-  if m.wallKey ~= key then
-    m.wall, m.wallKey = gfx.wallpaper(K.cfg.wallpaper, m.w, m.h), key
-    -- a dark edge between the margins and the mirrored screen
-    for y = 1, m.h do
-      local r = m.wall[y]
-      for _, x in ipairs({ ox, ox + src.w + 1 }) do
-        if x >= 1 and x <= m.w then
-          r[1] = r[1]:sub(1, x - 1) .. " " .. r[1]:sub(x + 1)
-          r[3] = r[3]:sub(1, x - 1) .. "f" .. r[3]:sub(x + 1)
-        end
-      end
+  m.dirty=false
+  local rows=mirror.rows(src.buf,src.w,src.h,m.w,m.h)
+  for y,row in ipairs(rows)do
+    local old=m.cache[y]
+    if not old or old[1]~=row[1]or old[2]~=row[2]or old[3]~=row[3]then
+      m.target.setCursorPos(1,y);m.target.blit(row[1],row[2],row[3]);m.cache[y]=row
     end
   end
-  local tgt, cache = m.target, m.cache
-  local n = min(src.w, m.w - ox)
-  for y = 1, m.h do
-    local wt, wf, wb = m.wall[y][1], m.wall[y][2], m.wall[y][3]
-    local sy = y - oy
-    local t, f, b = wt, wf, wb
-    if sy >= 1 and sy <= src.h then
-      local st, sf, sb = src.buf.getLine(sy)
-      t = wt:sub(1, ox) .. st:sub(1, n) .. wt:sub(ox + n + 1)
-      f = wf:sub(1, ox) .. sf:sub(1, n) .. wf:sub(ox + n + 1)
-      b = wb:sub(1, ox) .. sb:sub(1, n) .. wb:sub(ox + n + 1)
-    end
-    local c = cache[y]
-    if not c or c[1] ~= t or c[2] ~= f or c[3] ~= b then
-      tgt.setCursorPos(1, y)
-      tgt.blit(t, f, b)
-      cache[y] = { t, f, b }
-    end
-  end
-  local cur = src.lastCursor
-  if cur and cur.x <= n then
-    tgt.setCursorPos(ox + cur.x, oy + cur.y)
-    tgt.setTextColor(cur.color)
-    tgt.setCursorBlink(true)
-  else
-    tgt.setCursorBlink(false)
-  end
+  local cur=src.lastCursor
+  if cur and cur.x>=1 and cur.x<=src.w and cur.y>=1 and cur.y<=src.h then
+    local x,y=mirror.target(cur.x,cur.y,src.w,src.h,m.w,m.h)
+    m.target.setCursorPos(x,y);m.target.setTextColor(cur.color);m.target.setCursorBlink(true)
+  else m.target.setCursorBlink(false)end
 end
 
 local function render()
@@ -3652,7 +3642,8 @@ local function dialogInput(s, d, ev)
     d.field.text = (d.field.text .. ev[2]):sub(1, d.field.secret and 1024 or 12000)
   elseif e == "key" then
     if ev[2] == keys.backspace then d.field.text = d.field.text:sub(1, -2)
-    elseif ev[2] == keys.enter then answer(s, d, #d.buttons) end
+    elseif ev[2] == keys.enter then answer(s, d, #d.buttons)
+    elseif ev[2] == keys.escape then answer(s,d,1) end
   end
   markDirty(s)
 end
@@ -3667,7 +3658,8 @@ local function keyboard(ev)
   if pictureTarget then
     if e=="key"and((alt and ev[2]==keys.a)or ev[2]==keys.f1)then K.launch("agent",{},{screen=pictureTarget});return end
     for _,ss in ipairs(screens)do local dialog=topDialog(ss);if dialog and not dialog.field then
-      if e=="key"and ev[2]==keys.enter then answer(ss,dialog,dialog.enterChoice or 1)end
+      if e=="key"and ev[2]==keys.enter then answer(ss,dialog,dialog.enterChoice or 1)
+      elseif e=="key"and ev[2]==keys.escape then answer(ss,dialog,1)end
       return
     end end
     inputConsole.keyboard(ev,pictureTarget);return
@@ -3675,6 +3667,16 @@ local function keyboard(ev)
   if e == "key" and ev[2] == keys.f1 then K.launch("agent", nil, {screen=screenByName.term}); return end
   if alt and e == "key" and shortcut(ev[2]) then markAll(); return end
   if alt and e == "char" then return end
+  if e=="key"and ev[2]==keys.escape then
+    local handled=false
+    if K.palette then K.palette=nil;handled=true end
+    for _,sc in ipairs(screens)do
+      local d=topDialog(sc)
+      if d then answer(sc,d,1);return end
+      if sc.menu or sc.popup then sc.menu,sc.popup=nil,nil;handled=true end
+    end
+    if handled then markAll();return end
+  end
   if K.palette and e ~= "key_up" then paletteInput(ev); return end
   for _, s in ipairs(screens) do
     local d = topDialog(s)
@@ -4526,8 +4528,8 @@ local function dispatch(ev)
     local s = screenByName[ev[2]]
     if s and s.role == "mirror" then
       local home = screenByName.term
-      local x, y = ev[3] - (s.ox or 0), ev[4] - (s.oy or 0)
-      if x >= 1 and y >= 1 and x <= home.w and y <= home.h then pointer(home, "touch", 1, x, y) end
+      local x,y=mirror.source(ev[3],ev[4],home.w,home.h,s.w,s.h)
+      if x then pointer(home,"touch",1,x,y)end
     elseif s and s.role ~= "off" then
       pointer(s, "touch", 1, ev[3], ev[4])
     else
@@ -4541,13 +4543,13 @@ local function dispatch(ev)
   elseif e == "monitor_resize" then
     local s = screenByName[ev[2]]
     if s and s.role ~= "off" then
-      setupScreen(s)
+      setupScreen(s);markDirty(s)
       for _, w in ipairs(wins) do if w.screen == s then layout(w) end end
     end
     broadcast(ev)
   elseif e == "term_resize" then
     local s = screenByName.term
-    setupScreen(s)
+    setupScreen(s);markDirty(s)
     for _, w in ipairs(wins) do if w.screen == s then layout(w) end end
   elseif e == "peripheral" or e == "peripheral_detach" then
     local ty = e == "peripheral" and peripheral.getType(ev[2])
@@ -5942,12 +5944,12 @@ local FONT = {
   G = { "011", "100", "101", "101", "011" }, H = { "101", "101", "111", "101", "101" },
   I = { "111", "010", "010", "010", "111" }, J = { "001", "001", "001", "101", "010" },
   K = { "101", "101", "110", "101", "101" }, L = { "100", "100", "100", "100", "111" },
-  M = { "101", "111", "111", "101", "101" }, N = { "110", "101", "101", "101", "101" },
+  M = { "10001", "11011", "10101", "10001", "10001" }, N = { "10001", "11001", "10101", "10011", "10001" },
   O = { "010", "101", "101", "101", "010" }, P = { "110", "101", "110", "100", "100" },
   Q = { "010", "101", "101", "110", "011" }, R = { "110", "101", "110", "101", "101" },
   S = { "011", "100", "010", "001", "110" }, T = { "111", "010", "010", "010", "010" },
   U = { "101", "101", "101", "101", "111" }, V = { "101", "101", "101", "101", "010" },
-  W = { "101", "101", "111", "111", "101" }, X = { "101", "101", "010", "101", "101" },
+  W = { "10001", "10001", "10101", "11011", "10001" }, X = { "101", "101", "010", "101", "101" },
   Y = { "101", "101", "010", "010", "010" }, Z = { "111", "001", "010", "100", "111" },
   ["0"] = { "111", "101", "101", "101", "111" }, ["1"] = { "110", "010", "010", "010", "111" },
   ["2"] = { "111", "001", "111", "100", "111" }, ["3"] = { "111", "001", "011", "001", "111" },
@@ -6457,6 +6459,44 @@ function J.decode(src)
   local v=parse(); ws(); assert(i>#src,"Trailing JSON data"); return v
 end
 return J
+]=]},
+  {"ccos/lib/mirror.lua",[=[
+-- Full Sync stretches terminal cells to the complete monitor area. Colours and
+-- teletext artwork fill their scaled rectangles; text has one centred glyph.
+local M={}
+local floor,ceil=math.floor,math.ceil
+function M.source(x,y,sw,sh,dw,dh)
+  if x<1 or y<1 or x>dw or y>dh then return end
+  return floor((x-1)*sw/dw)+1,floor((y-1)*sh/dh)+1
+end
+function M.target(x,y,sw,sh,dw,dh)
+  local a,b=ceil((x-1)*dw/sw)+1,ceil(x*dw/sw)
+  local c,d=ceil((y-1)*dh/sh)+1,ceil(y*dh/sh)
+  return floor((a+b)/2),floor((c+d)/2)
+end
+function M.rows(buf,sw,sh,dw,dh)
+  local rows,xmap,xcenter={}, {},{}
+  for x=1,dw do
+    local sx=floor((x-1)*sw/dw)+1
+    xmap[x]=sx;xcenter[x]=M.target(sx,1,sw,sh,dw,dh)
+  end
+  local previous,st,sf,sb
+  for y=1,dh do
+    local sy=floor((y-1)*sh/dh)+1
+    if sy~=previous then st,sf,sb=buf.getLine(sy);previous=sy end
+    local _,cy=M.target(1,sy,sw,sh,dw,dh)
+    local t,f,b={},{},{}
+    for x=1,dw do
+      local sx=xmap[x];local code=st:byte(sx)
+      local art=code>=128 and code<=159
+      t[x]=(art or(x==xcenter[x]and y==cy))and string.char(code)or " "
+      f[x],b[x]=sf:sub(sx,sx),sb:sub(sx,sx)
+    end
+    rows[y]={table.concat(t),table.concat(f),table.concat(b)}
+  end
+  return rows
+end
+return M
 ]=]},
   {"ccos/lib/picture.lua",[=[
 -- Hallmark · genre: atmospheric · structure: compact tool workbench · palette: ccOS tokens

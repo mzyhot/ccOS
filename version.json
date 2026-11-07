@@ -1,5 +1,5 @@
 {
-  "version": "2.1.1",
+  "version": "2.1.2",
   "files": [
     {
       "path": "ccos/apps/about.lua",
@@ -82,8 +82,8 @@
     {
       "path": "ccos/kernel.lua",
       "source": "src/ccos/kernel.lua",
-      "bytes": 111647,
-      "sha256": "6af3da82a04431c0f1891b51c69d62510e78b2be7a01e4bac06c0db8d11f9191"
+      "bytes": 112144,
+      "sha256": "adc64d20f96d25e690160428571b08b36fae549d39571fad79e2e50ea558c6e2"
     },
     {
       "path": "ccos/lib/agent.lua",
@@ -112,8 +112,8 @@
     {
       "path": "ccos/lib/gfx.lua",
       "source": "src/ccos/lib/gfx.lua",
-      "bytes": 15863,
-      "sha256": "a3d56aed43e879763071d4d789cd612fc0027c48ba80dc83ede09d61ef887323"
+      "bytes": 15893,
+      "sha256": "927ff68cab3de029ecba02f737b936d3324d03e7ba01240e3bdfc3bdc73dfa3c"
     },
     {
       "path": "ccos/lib/input.lua",
@@ -132,6 +132,12 @@
       "source": "src/ccos/lib/json.lua",
       "bytes": 4443,
       "sha256": "8c366d25535ac9639bf8535974447d71bbfd3f9033e01d164cc608f1ab21b1c9"
+    },
+    {
+      "path": "ccos/lib/mirror.lua",
+      "source": "src/ccos/lib/mirror.lua",
+      "bytes": 1224,
+      "sha256": "2540e03bbbeebe1aa96fee4fc6def45cb3d3c473a1bae4b44fe8e6afa91fb4e5"
     },
     {
       "path": "ccos/lib/picture.lua",
