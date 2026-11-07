@@ -1,5 +1,5 @@
 {
-  "version": "2.1",
+  "version": "2.1.1",
   "files": [
     {
       "path": "ccos/apps/about.lua",
@@ -10,8 +10,8 @@
     {
       "path": "ccos/apps/agent.lua",
       "source": "src/ccos/apps/agent.lua",
-      "bytes": 6864,
-      "sha256": "bb001c146b8c4da085b68f7d4e608f270efc52324bee50e31da6860be1ff8cb1"
+      "bytes": 6930,
+      "sha256": "b2a90cf54a9545a3436ebfd038eb3de8d626d118c8c7e3236ed77abfc70f36f4"
     },
     {
       "path": "ccos/apps/calc.lua",
@@ -82,14 +82,14 @@
     {
       "path": "ccos/kernel.lua",
       "source": "src/ccos/kernel.lua",
-      "bytes": 111559,
-      "sha256": "dd9b410b7e6a43d05a8a9bea7796f0cacfd204964373d63969d859a4d9fdcb7f"
+      "bytes": 111647,
+      "sha256": "6af3da82a04431c0f1891b51c69d62510e78b2be7a01e4bac06c0db8d11f9191"
     },
     {
       "path": "ccos/lib/agent.lua",
       "source": "src/ccos/lib/agent.lua",
-      "bytes": 29429,
-      "sha256": "f29d958ef25bd27b0c6284a5efb366f8fc6f0b3f17ab8c3c6d73c096d52bd78d"
+      "bytes": 29616,
+      "sha256": "72acece706c3944db73e7e5df4894bd9cd86b33e0ef74b7eb5f5bb922d1b7a25"
     },
     {
       "path": "ccos/lib/audio.lua",
@@ -104,6 +104,12 @@
       "sha256": "e8b521c0945ccec40c49bccfdfa670626e7e212d922c7f11408d66dbe6baea6f"
     },
     {
+      "path": "ccos/lib/encoding.lua",
+      "source": "src/ccos/lib/encoding.lua",
+      "bytes": 3844,
+      "sha256": "66c506202678c96145d43954a0d99c4cdb7ed2e93b7a7245da380562f34f7bf8"
+    },
+    {
       "path": "ccos/lib/gfx.lua",
       "source": "src/ccos/lib/gfx.lua",
       "bytes": 15863,
@@ -112,8 +118,8 @@
     {
       "path": "ccos/lib/input.lua",
       "source": "src/ccos/lib/input.lua",
-      "bytes": 3930,
-      "sha256": "7819b52ed378af647c02e215642cfd02d371685fe1714cc37e218f737f68c985"
+      "bytes": 3941,
+      "sha256": "807970204e092f9295900976ee0c2ebd2ef83f901226654b4e8e2089669a20cd"
     },
     {
       "path": "ccos/lib/install.lua",

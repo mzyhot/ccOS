@@ -364,7 +364,7 @@ local function readReal(path)
   f:close()
   return s
 end
-local SOURCE_FILES = { "ccos/apps/about.lua", "ccos/apps/agent.lua", "ccos/apps/calc.lua", "ccos/apps/clock.lua", "ccos/apps/files.lua", "ccos/apps/music.lua", "ccos/apps/notifications.lua", "ccos/apps/piano.lua", "ccos/apps/print.lua", "ccos/apps/settings.lua", "ccos/apps/tasks.lua", "ccos/apps/tools.lua", "ccos/apps/viewer.lua", "ccos/kernel.lua", "ccos/lib/agent.lua", "ccos/lib/audio.lua", "ccos/lib/catalog.lua", "ccos/lib/gfx.lua", "ccos/lib/input.lua", "ccos/lib/install.lua", "ccos/lib/json.lua", "ccos/lib/picture.lua", "ccos/lib/sha256.lua", "ccos/lib/suite.lua", "ccos/lib/time.lua", "ccos/lib/ui.lua", "ccos/lib/updater.lua", "ccos/setup.lua", "ccos/update.lua" }
+local SOURCE_FILES = { "ccos/apps/about.lua", "ccos/apps/agent.lua", "ccos/apps/calc.lua", "ccos/apps/clock.lua", "ccos/apps/files.lua", "ccos/apps/music.lua", "ccos/apps/notifications.lua", "ccos/apps/piano.lua", "ccos/apps/print.lua", "ccos/apps/settings.lua", "ccos/apps/tasks.lua", "ccos/apps/tools.lua", "ccos/apps/viewer.lua", "ccos/kernel.lua", "ccos/lib/agent.lua", "ccos/lib/audio.lua", "ccos/lib/catalog.lua", "ccos/lib/encoding.lua", "ccos/lib/gfx.lua", "ccos/lib/input.lua", "ccos/lib/install.lua", "ccos/lib/json.lua", "ccos/lib/picture.lua", "ccos/lib/sha256.lua", "ccos/lib/suite.lua", "ccos/lib/time.lua", "ccos/lib/ui.lua", "ccos/lib/updater.lua", "ccos/setup.lua", "ccos/update.lua" }
 for _, rel in ipairs(SOURCE_FILES) do
   local s = readReal(SRC .. "/" .. rel)
   if not s then error("missing " .. rel) end
@@ -1025,6 +1025,32 @@ elseif SCENARIO=="input-agent"then
   step(4,function()if findText("term","sk-or-secret-bridge")or findText("main","sk-or-secret-bridge")then fail("Secret input exposed")end;capture("Masked API key prompt",{"term"})end)
   step(2,keyPress("enter"))
   step(5,function()if node("ccos/private/openrouter.cfg").data~="sk-or-secret-bridge"then fail("Key bridge did not save")end;ccos.exit()end)
+elseif SCENARIO=="agent-unicode"or SCENARIO=="agent-unicode-tools"then
+  http=assert(realLoad(readReal("agent_mock.lua")))()({scenario=SCENARIO,push=push,after=function(dt,fn)at(tick+dt,fn)end})
+  step(100,function()ccos.agent.setKey("sk-or-test-key");ccos.launch("agent",{},"term");if SCENARIO=="agent-unicode-tools"then ccos.agent.start("Write a Unicode note")else ccos.agent.start("caf"..string.char(233).." "..string.char(7),"terminal")end end)
+  if SCENARIO=="agent-unicode-tools"then
+    step(8,function()
+      if not ccos.agent.pending then fail("Unicode tool action not offered for review")end
+      capture("Unicode tool preview",{"term"});ccos.agent.approve(true)
+    end)
+    step(10,function()
+      if ccos.agent.status~="Done"then fail("Unicode tool loop failed")end
+      if not node("notes/unicode.txt")or node("notes/unicode.txt").data~="café — 🚀"then fail("Display fix changed actual file contents")end
+      ccos.exit()
+    end)
+  else
+    step(15,function()
+      if ccos.agent.status~="Done"then fail("Unicode reply failed")end
+      if ccos.agent.messages[2].text~="“Café” — ready… ✅ 🚀"then fail("Unicode response data was changed")end
+      if ccos.agent.conversation[2].content~="“Café” — ready… ✅ 🚀"then fail("Conversation history lost Unicode")end
+      if not findText("term",'"Caf'..string.char(233)..'" -- ready... [OK] ?')then fail("Agent Unicode reply did not render as terminal text")end
+      capture("Unicode-safe AI reply",{"term"});ccos.setFullSync(false);ccos.launch("agent",{},"monitor_0")
+    end)
+    step(8,function()
+      if not findText("main",'"Caf'..string.char(233)..'" -- ready... [OK] ?')then fail("Monitor reply still displays UTF-8 bytes")end
+      capture("Unicode-safe monitor reply",{"main"});ccos.exit()
+    end)
+  end
 elseif SCENARIO=="agent-models"then
   http=assert(realLoad(readReal("agent_mock.lua")))()({scenario=SCENARIO,push=push,after=function(dt,fn)at(tick+dt,fn)end})
   step(100,function()ccos.agent.refreshModels()end)
@@ -1038,7 +1064,7 @@ elseif SCENARIO=="agent-models"then
 elseif SCENARIO=="update-standalone"then
   writeFile("ccos/config.cfg",textutils.serialize({screenLayout=2,user="Preserved",autoUpdates=false}))
   writeFile("ccos/private/openrouter.cfg","sk-or-preserved")
-  local bundled=readReal(SRC.."/../setup.lua"):gsub('local VERSION = "2.1"','local VERSION = "2.2"')
+  local bundled=readReal(SRC.."/../setup.lua"):gsub('local VERSION = "2.1.1"','local VERSION = "2.2"')
   http={get=function(opts)
     assert(opts.url=="https://raw.githubusercontent.com/mzyhot/ccOS/main/setup.lua")
     return {read=function(n)return bundled:sub(1,n)end,close=function()end}
@@ -1072,16 +1098,16 @@ elseif SCENARIO:match("^updates%-")then
     if mode=="later"then tap("main","Later")()else tap("main","Update & restart")()end
   end)
   if mode=="later"then
-    step(5,function()if ccos.version~="2.1"then fail("Declined update changed version")end;ccos.exit()end)
+    step(5,function()if ccos.version~="2.1.1"then fail("Declined update changed version")end;ccos.exit()end)
   elseif mode=="rollback"then
     step(500,function()
-      if node("ccos/kernel.lua").data~=oldKernel or ccos.version~="2.1"then fail("Failed update did not roll back")end
+      if node("ccos/kernel.lua").data~=oldKernel or ccos.version~="2.1.1"then fail("Failed update did not roll back")end
       if not ccos.updates.status:find("rolled back",1,true)then fail("Update rollback not reported")end
       for _,name in ipairs(fs.list("/"))do if name:find(".ccos-stage-",1,true)then fail("Update left staging files")end end
       ccos.exit()
     end)
   elseif mode=="corrupt"then
-    step(200,function()if ccos.version~="2.1"or not node("ccos/kernel.lua").data:find('local VERSION = "2.1"',1,true)then fail("Corrupt update changed code")end;if not ccos.updates.status:find("Checksum mismatch",1,true)then fail("Corruption not reported")end;ccos.exit()end)
+    step(200,function()if ccos.version~="2.1.1"or not node("ccos/kernel.lua").data:find('local VERSION = "2.1.1"',1,true)then fail("Corrupt update changed code")end;if not ccos.updates.status:find("Checksum mismatch",1,true)then fail("Corruption not reported")end;ccos.exit()end)
   elseif mode=="auto"or mode=="install"then
     step(500,function()
       if ccos.version~="2.2"then fail("Verified update did not restart into new OS")end

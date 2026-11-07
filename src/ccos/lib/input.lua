@@ -21,7 +21,7 @@ return function(K,T)
     if agent and K.agent and not K.agent.busy then
       if e=="char"or e=="paste"then I.draft=(I.draft..ev[2]):sub(1,12000);I.error=nil
       elseif e=="key"and ev[2]==keys.backspace then I.draft=I.draft:sub(1,-2)
-      elseif e=="key"and ev[2]==keys.enter then local ok,why=K.agent.start(I.draft);if ok then I.draft=""else I.error=why end end
+      elseif e=="key"and ev[2]==keys.enter then local ok,why=K.agent.start(I.draft,"terminal");if ok then I.draft=""else I.error=why end end
       K.markAll()
     end
   end

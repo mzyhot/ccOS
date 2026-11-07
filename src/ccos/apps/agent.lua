@@ -11,7 +11,7 @@ local function act(g,y,items)
   return y+bh+1
 end
 function app:send(text)
-  local ok,err=A.start(text)
+  local ok,err=A.start(text,"terminal")
   if ok then self.input=""else self.error=err end
 end
 function app:draw(g)
@@ -20,10 +20,10 @@ function app:draw(g)
   g:text(2,y,ui.trunc(A.status.."  |  "..ccos.config("agentModel"),g.w-2),A.busy and T.accent or T.muted);y=y+2
   if A.pending then
     g:fill(2,y,g.w-2,1,T.raised);g:text(3,y,"Review: "..ui.trunc(A.pending.name,g.w-12),T.warn,T.raised)
-    local details=ui.wrap(ccos.json.encode(A.pending.arguments),g.w-4)
+    local details=ui.wrap(A.display(A.redact(ccos.json.encode(A.pending.arguments))),g.w-4)
     local count=min(#details,max(1,floor((g.h-y-5)/2)))
     if self.reviewIdentity~=A.pending then self.reviewIdentity=A.pending;self.reviewScroll.scroll=0 end
-    g:list(self.reviewScroll,3,y+1,g.w-4,count,details,function(line,_,x,yy,w)g:text(x,yy,ui.trunc(A.redact(line),w),T.text)end)
+    g:list(self.reviewScroll,3,y+1,g.w-4,count,details,function(line,_,x,yy,w)g:text(x,yy,ui.trunc(line,w),T.text)end)
     y=act(g,y+count+1,{{"Allow action",function()A.approve(true)end,true},{"Deny action",function()A.approve(false)end},{"Stop task",A.cancel}})
   end
   if self.tab==3 then
@@ -40,14 +40,14 @@ function app:draw(g)
     end
   elseif self.tab==4 then
     y=act(g,y,{{"Refresh",A.refreshModels},{self.showPaid and "Show free only"or "Include paid",function()self.showPaid=not self.showPaid end}})
-    g:text(2,y,ui.trunc(A.modelStatus or "Refresh to load models",g.w-2),T.muted);y=y+2
+    g:text(2,y,ui.trunc(A.display(A.modelStatus or "Refresh to load models"),g.w-2),T.muted);y=y+2
     local models={};for _,m in ipairs(A.models or {})do if self.showPaid or m.free then models[#models+1]=m end end
     g:list(self.scroll,2,y,g.w-2,max(1,g.h-y),models,function(m,_,x,yy,w)g:text(x,yy,ui.trunc((m.free and "Free: "or "Paid: ")..m.id,w),T.text)end,function(m)local ok,why=A.selectModel(m.id);if ok then self.tab=3 else self.error=why end end)
   elseif self.tab==2 then
     local lines={}
     for _,e in ipairs(A.activity)do
       lines[#lines+1]=(e.ok and "OK "or "ERROR ")..e.name
-      for _,line in ipairs(ui.wrap(e.text,g.w-5))do lines[#lines+1]="  "..line end
+      for _,line in ipairs(ui.wrap(A.display(e.text),g.w-5))do lines[#lines+1]="  "..line end
     end
     if #lines==0 then lines={"Actions will appear here as the agent uses tools."}end
     g:list(self.scroll,2,y,g.w-2,max(1,g.h-y),lines,function(line,_,x,yy,w)g:text(x,yy,ui.trunc(line,w),T.text)end)
@@ -59,7 +59,7 @@ function app:draw(g)
     local lines={}
     for _,m in ipairs(A.messages)do
       lines[#lines+1]=(m.role=="user"and "You"or(m.role=="assistant"and "Agent"or "System"))..":"
-      for _,line in ipairs(ui.wrap(m.text,g.w-5))do lines[#lines+1]=" "..line end
+      for _,line in ipairs(ui.wrap(A.display(m.text),g.w-5))do lines[#lines+1]=" "..line end
       lines[#lines+1]=""
     end
     if #lines==0 then lines={"ccOS Agent", "", "Read, edit and create files; run programs;", "inspect output; control settings, screens,", "audio, printers and attached peripherals.", "", A.configured()and(touch and "Type a message on the computer, or choose a task."or "Type a task below and press Enter.")or "Add your OpenRouter key in Settings."}end
@@ -71,7 +71,7 @@ function app:draw(g)
       local prefix=A.busy and "Task running..."or(self.input==""and "Ask ccOS..."or self.input)
       g:text(2,cy,ui.trunc(prefix:sub(-max(1,g.w-12)),g.w-12),self.input==""and T.muted or T.text,T.surface)
       g:button(g.w-8,cy,"Send",function()self:send(self.input)end,{w=8,active=true,disabled=A.busy})
-      if self.error then g:text(2,g.h,ui.trunc(self.error,g.w-2),T.warn,T.surface)end
+      if self.error then g:text(2,g.h,ui.trunc(A.display(self.error),g.w-2),T.warn,T.surface)end
       if not A.busy then term.setCursorPos(2+min(#self.input,max(1,g.w-12)),cy);term.setCursorBlink(true)end
     end
   end

@@ -1,4 +1,4 @@
-# ccOS 2.1
+# ccOS 2.1.1
 
 A desktop and compact touch interface for advanced CC: Tweaked computers. ccOS includes a categorized tool catalog, stereo audio, printer/disk integration, configurable clocks and an OpenRouter agent with native operating-system tools.
 
@@ -17,7 +17,7 @@ Or copy the single root **setup.lua** onto the computer:
 3. Follow the five setup pages: profile, time zone, clock/appearance, optional OpenRouter connection, and finish.
 4. ccOS preserves an existing startup script as `startup.before-ccos.lua` (numbered backups if needed), then automatically restarts into the OS.
 
-`setup.lua` contains all **30** runtime files and libraries. It installs the modules into `/ccos`, verifies file contents, and then starts `/ccos/setup.lua`. No third-party Lua package downloads are required. `dist/setup.lua` is the same installer; `dist/install.lua` is a compatibility copy.
+`setup.lua` contains all **31** runtime files and libraries. It installs the modules into `/ccos`, verifies file contents, and then starts `/ccos/setup.lua`. No third-party Lua package downloads are required. `dist/setup.lua` is the same installer; `dist/install.lua` is a compatibility copy.
 
 Reinstallation skips identical files and preserves configuration, notes, tool data and the saved key. Changed code is staged before replacement and restored if installation fails. Setup checks free space before making changes. Legacy `/aurora/config.cfg` preferences and tool data are imported when there is no ccOS configuration; the old installation and user files are retained. Theme/wallpaper names are migrated. Existing startup scripts are kept.
 
@@ -92,6 +92,8 @@ The initial model is `openrouter/auto`. **AI Agent > Settings > Models** loads O
 
 Requests omit the optional `parallel_tool_calls` flag to avoid excluding providers that do not support it. HTTP failures preserve OpenRouter's JSON error message and provider details, with hints for key, credit, routing and rate-limit errors. A 404 can still mean that your account/provider/privacy settings leave no available route; choose another tool-capable model in Models.
 
+AI chat, action review and activity text convert UTF-8 to CC's single-byte terminal font **before** wrapping or clipping. Smart quotes, dashes, ellipses and common symbols have readable replacements; Latin-1 accents use the font's native glyphs. Unsupported characters use `?`, rather than displaying their UTF-8 bytes. Conversation history, tool arguments and file contents keep their original UTF-8. Keyboard input is encoded to UTF-8 for requests, including accented letters and CC input symbols. Legacy single-byte tool output is also encoded before transport. The display mapping follows [CC: Tweaked's terminal character conversion](https://github.com/cc-tweaked/CC-Tweaked/blob/mc-1.21.x/projects/core/src/main/java/dan200/computercraft/core/util/StringUtil.java).
+
 The agent's native tools can:
 
 - List, search and read files; create directories; write, append and edit files; copy, move and reversibly trash files.
@@ -106,7 +108,7 @@ The implementation follows [OpenRouter client tool calling](https://openrouter.a
 
 ## Updates
 
-Automatic update checks are enabled by default: once after startup, then every six hours. A new release opens **Later / Update & restart**; installation only starts after you choose Update. Enter selects Later. Turn checks off in **Settings > System**, or monitor **Settings > Auto update checks**. **Check now** checks manually.
+Automatic update checks are enabled by default: once after startup, then every six real-life hours while the computer is running. A new release opens **Later / Update & restart**; installation only starts after you choose Update. Enter selects Later. Turn checks off in **Settings > System**, or monitor **Settings > Auto update checks**. **Check now** checks manually.
 
 Inside ccOS, run `update` to install the latest version and restart, or `update check` to check and prompt. From CraftOS, run the installed `/update.lua`. Existing ccOS 2.0 installations can upgrade without repeating setup:
 
@@ -149,6 +151,7 @@ src/ccos/lib/suite.lua     the 45 utility implementations
 src/ccos/lib/agent.lua     OpenRouter tool loop and OS operations
 src/ccos/lib/time.lua      shared timezone/DST/display policy
 src/ccos/lib/json.lua      bundled JSON codec
+src/ccos/lib/encoding.lua  UTF-8 / terminal display and input boundary
 src/ccos/lib/picture.lua   compact monitor workspace
 src/ccos/lib/input.lua     computer input bridge for monitor prompts
 src/ccos/lib/updater.lua   checks, approval prompt and verified downloads
@@ -172,6 +175,6 @@ lua harness.lua ../src picture screens.html
 python3 ../tools/render.py screens.html shots
 ```
 
-The check runner compiles every Lua source and runs 32 core assertions, 42 tool behavior assertions and 35 simulated runtime scenarios. Coverage includes all utility rendering, actual tool controls/persistence, timezone and DST boundaries, Start and mirror input, different monitor sizes, agent multi-round tool use, action approval/denial, cancellation, late responses, authentication errors, malformed arguments, setup/restart, offline setup, reinstall, low space and rollback. Installer tests compare every installed file to source. Update tests cover approval, decline, unchanged releases, offline checks, corrupt files, rollback, restart and preserved data. Input tests cover monitor prompts, AI chat, masked key entry and switching to Full Sync. OpenRouter tests verify request parameters, provider-error details and filtered model selection.
+The check runner compiles every Lua source and runs 51 core assertions, 42 tool behavior assertions and 37 simulated runtime scenarios. Coverage includes all utility rendering, actual tool controls/persistence, timezone and DST boundaries, Start and mirror input, different monitor sizes, agent multi-round tool use, action approval/denial, cancellation, late responses, authentication errors, malformed arguments, setup/restart, offline setup, reinstall, low space and rollback. Installer tests compare every installed file to source. Update tests cover approval, decline, unchanged releases, offline checks, corrupt files, rollback, restart and preserved data. Input tests cover monitor prompts, AI chat, masked key entry and switching to Full Sync. OpenRouter tests verify request parameters, provider-error details, filtered model selection, Unicode replies on desktop/monitor, Unicode input transport and preserved Unicode file contents through action review.
 
 OpenRouter requests are mocked in tests; no real API key or paid inference is used. Rendering is based on terminal cell captures, not a real Minecraft client. A Minecraft/live-provider check remains necessary on the target computer.

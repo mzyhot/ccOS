@@ -34,6 +34,17 @@ return function(ctx)
     elseif ctx.scenario=="agent-route-error"then
       local raw=J.encode({error={code=404,message="No endpoints found that support the requested parameters",metadata={raw="provider route rejected sk-or-test-key"}}})
       ctx.after(2,function()ctx.push("http_failure",options.url,"Not Found",{read=function(n)return raw:sub(1,n)end,getResponseCode=function()return 404 end,close=function()closed=closed+1 end})end);return true
+    elseif ctx.scenario=="agent-unicode"then
+      assert(payload.messages[#payload.messages].content=="café •", "Terminal prompt was not encoded for OpenRouter")
+      local raw='{"choices":[{"message":{"role":"assistant","content":"\\u201cCaf\\u00e9\\u201d \\u2014 ready\\u2026 \\u2705 \\ud83d\\ude80"}}]}'
+      ctx.after(2,function()ctx.push("http_success",options.url,{read=function(n)return raw:sub(1,n)end,getResponseCode=function()return 200 end,close=function()closed=closed+1 end})end);return true
+    elseif ctx.scenario=="agent-unicode-tools"then
+      if count==1 then calls={tool("unicode-write","write_file",{path="/notes/unicode.txt",content="café — 🚀"},J)}
+      else
+        assert(payload.messages[3].content=="I’m writing café — 🚀", "Assistant tool-turn text was converted destructively")
+        assert(J.decode(payload.messages[3].tool_calls[1]["function"].arguments).content=="café — 🚀","Tool arguments lost Unicode")
+        local last=payload.messages[#payload.messages];assert(last.role=="tool"and J.decode(last.content).ok==true,"Unicode tool failed")
+      end
     elseif ctx.scenario=="agent-error"then
       ctx.after(2,function()ctx.push("http_failure",options.url,"HTTP 401 Unauthorized",{close=function()closed=closed+1 end})end);return true
     elseif ctx.scenario=="agent-malformed"then
@@ -61,7 +72,7 @@ return function(ctx)
       assert(output and output.ok and output.result.text:find("Agent ran",1,true),"Agent could not observe program output")
       assert(private and private.ok==false,"Private key was readable through a file tool")
     else error("Too many inference rounds")end
-    local message={role="assistant",content=calls and ""or "Finished: created and edited files, ran the program, updated settings and volume."}
+    local message={role="assistant",content=calls and(ctx.scenario=="agent-unicode-tools"and "I’m writing café — 🚀"or "")or "Finished: created and edited files, ran the program, updated settings and volume."}
     if calls then message.tool_calls=J.array(calls)end
     local raw=J.encode({choices=J.array({{message=message}})})
     ctx.after(2,function()

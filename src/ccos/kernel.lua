@@ -1,5 +1,5 @@
 --[[
-  ccOS                                                        v2.1
+  ccOS                                                        v2.1.1
 
   A windowed desktop for CC: Tweaked across every screen it can find:
   the computer's desktop and advanced monitors as touch-only media hubs,
@@ -11,7 +11,7 @@
   apps add the `ccos` API on top.
 ]]
 
-local VERSION = "2.1"
+local VERSION = "2.1.1"
 local ROOT = "/ccos"
 local CONFIG_PATH = ROOT .. "/config.cfg"
 local nativeTerm = term.current()
@@ -84,6 +84,8 @@ local clock = loadModule(ROOT .. "/lib/time.lua")
 local catalog = loadModule(ROOT .. "/lib/catalog.lua")
 local json = loadModule(ROOT .. "/lib/json.lua")
 local sha256=loadModule(ROOT.."/lib/sha256.lua")
+local encoding=loadModule(ROOT.."/lib/encoding.lua")
+K.encoding=encoding
 local installer=loadModule(ROOT.."/lib/install.lua")
 K.clock, K.catalog, K.json = clock, catalog, json
 
@@ -2357,7 +2359,7 @@ command("time", "time", "Real and in-game time", function(_, out)
 end)
 command("ai", "ai [task]", "Open the ccOS agent or give it a task", function(a,out)
   K.launch("agent", nil, {screen=screenByName.term})
-  if #a>0 then local ok,err=K.agent.start(table.concat(a," ")); if not ok then out(err,T.warn)end end
+  if #a>0 then local ok,err=K.agent.start(table.concat(a," "),"terminal"); if not ok then out(err,T.warn)end end
 end)
 command("update","update [check]","Check for or install ccOS updates",function(a,out)
   local ok,why;if a[1]=="check"then ok,why=K.updates.check(true)else ok,why=K.updates.install()end

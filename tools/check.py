@@ -3,7 +3,7 @@
 from pathlib import Path
 import subprocess, sys, tempfile, json
 ROOT=Path(__file__).resolve().parents[1]
-SCENARIOS=['picture','picture-small','picture-compact','picture-upgrade','desktop-menu','mirror','home','small','tools-desktop','tools-monitor','tool-logic','agent','agent-error','agent-malformed','agent-cancel','agent-deny','agent-cancel-http','agent-timeout','setup','setup-offline','setup-reinstall','setup-rollback','setup-no-space','sync-input','input-agent','agent-route-error','agent-models','updates-auto','updates-same','updates-later','updates-install','updates-corrupt','updates-offline','updates-rollback','update-standalone']
+SCENARIOS=['picture','picture-small','picture-compact','picture-upgrade','desktop-menu','mirror','home','small','tools-desktop','tools-monitor','tool-logic','agent','agent-error','agent-malformed','agent-cancel','agent-deny','agent-cancel-http','agent-timeout','setup','setup-offline','setup-reinstall','setup-rollback','setup-no-space','sync-input','input-agent','agent-route-error','agent-models','agent-unicode','agent-unicode-tools','updates-auto','updates-same','updates-later','updates-install','updates-corrupt','updates-offline','updates-rollback','update-standalone']
 subprocess.run([sys.executable,str(ROOT/'tools/bundle.py')],check=True)
 for source in sorted((ROOT/'src').rglob('*.lua')):
     subprocess.run(['lua','-e','assert(loadfile('+json.dumps(str(source))+'))'],check=True,capture_output=True)
